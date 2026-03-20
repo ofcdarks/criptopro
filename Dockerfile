@@ -1,48 +1,47 @@
 # ============================================================
-# LaCasaStudio V2.3 — TypeScript + PostgreSQL Production Build
+# CryptoEdge Pro v2.0.1 — Production Build
 # ============================================================
 
-FROM node:20-slim AS client-build
-WORKDIR /app/client
-COPY client/package*.json client/tsconfig*.json client/tailwind.config.js client/postcss.config.js ./
-RUN npm install
-COPY client/ ./
-RUN npx tsc --noEmit && npx vite build
-
-FROM node:20-slim AS server-build
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
-WORKDIR /app/server
-COPY server/package*.json server/tsconfig.json ./
-COPY server/prisma ./prisma/
-RUN npm install && npx prisma generate
-COPY server/src ./src/
-RUN npx tsc
-
-FROM node:20-slim AS server-deps
-WORKDIR /app/server
-COPY server/package*.json ./
-COPY server/prisma ./prisma/
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
-RUN npm install --omit=dev && npx prisma generate
-
 FROM node:20-slim AS production
+
 WORKDIR /app
-RUN apt-get update -y && apt-get install -y openssl wget && rm -rf /var/lib/apt/lists/*
+
+# Sistema: openssl (bcrypt), python3 (bot), wget (healthcheck)
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+      openssl wget python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Usuário não-root
 RUN groupadd -r appgroup && useradd -r -g appgroup -m appuser
 
-COPY --from=server-deps /app/server/node_modules ./server/node_modules
-COPY --from=server-build /app/server/dist ./server/dist
-COPY server/prisma ./server/prisma/
-COPY --from=client-build /app/client/dist ./server/public
+# Dependências Node
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev 2>/dev/null || npm install
 
-RUN mkdir -p /app/server/uploads && chown -R appuser:appgroup /app
+# Dependências Python (bot)
+COPY bot/requirements.txt ./bot/requirements.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r bot/requirements.txt 2>/dev/null || true
+
+# Código da aplicação
+COPY server.js db.js ./
+COPY public/ ./public/
+COPY bot/ ./bot/
+COPY templates/ ./templates/
+COPY integrations/ ./integrations/
+COPY healthcheck.sh ./
+
+# Dados e permissões
+RUN mkdir -p /data && chown -R appuser:appgroup /app /data
 
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV DB_PATH=/data
+
 EXPOSE 3000
 USER appuser
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD wget -qO- http://localhost:3000/api/health || exit 1
 
-CMD ["sh", "-c", "cd server && npx prisma migrate deploy 2>/dev/null || npx prisma db push 2>/dev/null; node dist/db/seed.js 2>/dev/null; node dist/index.js"]
+CMD ["node", "server.js"]
