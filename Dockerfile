@@ -2,7 +2,7 @@
 # CryptoEdge Pro v2.0.1 — Production Build
 # ============================================================
 
-FROM node:20-slim AS production
+FROM node:20-slim
 
 WORKDIR /app
 
@@ -11,9 +11,6 @@ RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
       openssl wget python3 python3-pip && \
     rm -rf /var/lib/apt/lists/*
-
-# Usuário não-root
-RUN groupadd -r appgroup && useradd -r -g appgroup -m appuser
 
 # Dependências Node
 COPY package.json package-lock.json* ./
@@ -31,15 +28,13 @@ COPY templates/ ./templates/
 COPY integrations/ ./integrations/
 COPY healthcheck.sh ./
 
-# Dados e permissões
-RUN mkdir -p /data && chown -R appuser:appgroup /app /data
+RUN mkdir -p /data
 
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DB_PATH=/data
 
 EXPOSE 3000
-USER appuser
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD wget -qO- http://localhost:3000/api/health || exit 1
