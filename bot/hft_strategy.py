@@ -106,11 +106,11 @@ HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.35'))  # 0.35% SL 
 HFT_TRAIL_ENABLED = True  # sempre ativo — motor principal de saída
 # DEFAULTS SINCRONIZADOS com frontend preset "equilibrado"
 # Se o bot reiniciar sem frontend, os valores são idênticos ao preset padrão
-HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.25'))  # break-even (cobre taxa + margem)
-HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.40'))  # lock 30%
-HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.60'))  # lock 50%
-HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '1.00'))  # lock 65%
-HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '1.50'))  # lock 75%
+HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.28'))  # break-even (cobre taxa + margem)
+HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.45'))  # lock 30%
+HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.70'))  # lock 50%
+HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '1.10'))  # lock 65%
+HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '1.60'))  # lock 75%
 HFT_TRAIL_L6 = float(os.environ.get('HFT_TRAIL_L6', '2.50'))  # lock 80% (trailing dinâmico)
 HFT_TRAIL_BE_BUF = float(os.environ.get('HFT_TRAIL_BE_BUF', '0.02'))  # buffer acima da taxa p/ BE
 HFT_NO_TP_CEILING = os.environ.get('HFT_NO_TP_CEILING', 'true').lower() == 'true'
