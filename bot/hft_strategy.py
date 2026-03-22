@@ -380,6 +380,40 @@ class HFTEngine:
         if HFT_COMPOUND:
             log.info(f'  💰 Juros compostos: ATIVO | capital atual = ${self.capital:.2f}')
 
+    def warmup(self):
+        """Carrega candles históricos da Binance para todos os pares.
+        Elimina necessidade de esperar horas para acumular dados."""
+        log.info(f'  📊 WARMUP: carregando histórico de {len(HFT_PAIRS)} pares (200 candles de {HFT_TIMEFRAME})...')
+        loaded = 0
+        for pair in HFT_PAIRS:
+            try:
+                if HFT_MARKET == 'futures':
+                    klines = self.client.futures_klines(symbol=pair, interval=HFT_TIMEFRAME, limit=200)
+                else:
+                    klines = self.client.get_klines(symbol=pair, interval=HFT_TIMEFRAME, limit=200)
+                if not klines or len(klines) < 10:
+                    log.warning(f'  ⚠️  WARMUP {pair}: apenas {len(klines) if klines else 0} candles')
+                    continue
+                # Preenche deques com dados históricos (exclui candle atual = incompleto)
+                for k in klines[:-1]:
+                    o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])
+                    self.opens[pair].append(o)
+                    self.highs[pair].append(h)
+                    self.lows[pair].append(l)
+                    self.closes[pair].append(c)
+                    self.volumes[pair].append(v)
+                self._candle_count[pair] = len(self.closes[pair])
+                loaded += 1
+                log.info(f'  ✅ WARMUP {pair}: {len(self.closes[pair])} candles carregados')
+            except Exception as e:
+                log.warning(f'  ⚠️  WARMUP {pair} falhou: {e}')
+        log.info(f'  📊 WARMUP completo: {loaded}/{len(HFT_PAIRS)} pares com dados históricos')
+        self.notify(
+            f'📊 Warmup completo\n'
+            f'{loaded} pares com ~200 candles de {HFT_TIMEFRAME}\n'
+            f'💡 Bot pronto para operar com contexto histórico'
+        )
+
     # ── PnL History ─────────────────────────────────────────────────────────
 
     def _load_pnl_history(self) -> dict:
@@ -2644,6 +2678,11 @@ def _start_visibility_thread(engine):
 def init_hft(capital, client, notify_fn=None):
     global _hft_engine
     _hft_engine = HFTEngine(capital, client, notify_fn)
+    # Carrega candles históricos da Binance antes de começar a operar
+    try:
+        _hft_engine.warmup()
+    except Exception as e:
+        log.warning(f'  ⚠️  Warmup falhou: {e} — bot vai acumular dados em tempo real')
     _hft_engine.running = True
     _start_visibility_thread(_hft_engine)
     return _hft_engine
