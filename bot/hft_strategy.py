@@ -107,7 +107,7 @@ HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.35'))  # 0.35% SL 
 # Preço avança → ativa próximo nível → trail SL sobe. Reverte → fecha no trail.
 HFT_TRAIL_ENABLED = True
 # L = trigger (% de move para ativar)
-HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.20'))
+HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.25'))
 HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.35'))
 HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.55'))
 HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '0.80'))
@@ -153,7 +153,7 @@ HFT_CONFIRM_MAX_DRIFT = float(os.environ.get('HFT_CONFIRM_MAX_DRIFT', '0.80'))  
 # ── Filtro de Amplitude e Lucro Mínimo ───────────────────────────────────────
 HFT_MIN_ATR_PCT    = float(os.environ.get('HFT_MIN_ATR_PCT',    '0.10'))  # ATR mínimo por vela (%)
 HFT_MIN_NET_PROFIT = float(os.environ.get('HFT_MIN_NET_PROFIT', '0.08'))  # lucro líquido mínimo ($)
-HFT_FEE_RATE       = float(os.environ.get('HFT_FEE_RATE',       '0.0005'))# taxa taker 0.05% (Binance futures)
+HFT_FEE_RATE       = float(os.environ.get('HFT_FEE_RATE',       '0.0005'))# taxa taker 0.05% (Binance futures real)
 # ── Slippage Buffer — protege contra diferença entre preço visto e executado ──
 # Slippage estimado em % do preço. Com posições pequenas (~$50-170), slippage é ~0.10-0.20%
 # O bot só permite fechar trade se: lucro bruto > taxa + slippage estimado
@@ -1101,7 +1101,8 @@ class HFTEngine:
             except Exception:
                 pass
         budget = self.capital * (HFT_RISK_PCT / 100) * risk_mult
-        qty    = self._round_step(budget / price, info['step'])
+        position_notional = budget * HFT_LEVERAGE  # margem × alavancagem = posição real
+        qty    = self._round_step(position_notional / price, info['step'])
         if qty < info['min_qty']:
             qty = self._round_step(info['min_notional'] / price * 1.05, info['step'])
         return qty if qty >= info['min_qty'] else 0
