@@ -7170,9 +7170,9 @@ function initHFTPanel() {
 // ─── Trail Stop Progressivo — UI ─────────────────────────────────────────────
 
 const TRAIL_PRESETS = {
-  conservador: { l1: 0.12, l2: 0.25, l3: 0.40, l4: 0.65, l5: 1.00, l6: 1.80 },
-  equilibrado: { l1: 0.15, l2: 0.30, l3: 0.50, l4: 0.80, l5: 1.30, l6: 2.50 },
-  agressivo:   { l1: 0.20, l2: 0.40, l3: 0.65, l4: 1.00, l5: 1.60, l6: 3.00 },
+  conservador: { l1: 0.18, l2: 0.30, l3: 0.45, l4: 0.70, l5: 1.10, l6: 1.80 },
+  equilibrado: { l1: 0.20, l2: 0.35, l3: 0.55, l4: 0.80, l5: 1.30, l6: 2.00 },
+  agressivo:   { l1: 0.25, l2: 0.45, l3: 0.70, l4: 1.10, l5: 1.80, l6: 3.00 },
   desligado:   { l1: 9.99, l2: 15.0, l3: 20.0, l4: 30.0, l5: 50.0, l6: 80.0 },
 };
 
@@ -7216,9 +7216,9 @@ function updateTrailDisplay(level, value) {
 }
 
 function updateTrailPreview() {
-  const l1 = parseFloat(document.getElementById('trail-l1')?.value || 0.15);
-  const l2 = parseFloat(document.getElementById('trail-l2')?.value || 0.30);
-  const l3 = parseFloat(document.getElementById('trail-l3')?.value || 0.50);
+  const l1 = parseFloat(document.getElementById('trail-l1')?.value || 0.20);
+  const l2 = parseFloat(document.getElementById('trail-l2')?.value || 0.35);
+  const l3 = parseFloat(document.getElementById('trail-l3')?.value || 0.55);
   const l4 = parseFloat(document.getElementById('trail-l4')?.value || 0.80);
   const l5 = parseFloat(document.getElementById('trail-l5')?.value || 1.30);
   const l6 = parseFloat(document.getElementById('trail-l6')?.value || 2.50);
@@ -7231,22 +7231,22 @@ function updateTrailPreview() {
   }
   el.style.color = 'var(--t2)';
   el.innerHTML =
-    `<b style="color:#378ADD">L1 ${l1.toFixed(2)}%</b> → SL vai p/ BE` +
-    ` <b style="color:#1D9E75"> | L2 ${l2.toFixed(2)}%</b> → trava 30%` +
-    ` <b style="color:#BA7517"> | L3 ${l3.toFixed(2)}%</b> → trava 50%` +
-    ` <b style="color:#D85A30"> | L4 ${l4.toFixed(2)}%</b> → trava 65%` +
-    ` <b style="color:#A855F7"> | L5 ${l5.toFixed(2)}%</b> → trava 75%` +
-    ` <b style="color:#EC4899"> | L6 ${l6.toFixed(2)}%</b> → trava 80% (trailing)`;
+    `<b style="color:#378ADD">L1 ${l1.toFixed(2)}%</b> → custos cobertos` +
+    ` <b style="color:#1D9E75"> | L2 ${l2.toFixed(2)}%</b> → lucro mínimo` +
+    ` <b style="color:#BA7517"> | L3 ${l3.toFixed(2)}%</b> → lucro sólido` +
+    ` <b style="color:#D85A30"> | L4 ${l4.toFixed(2)}%</b> → lucro forte` +
+    ` <b style="color:#A855F7"> | L5 ${l5.toFixed(2)}%</b> → lucro alto` +
+    ` <b style="color:#EC4899"> | L6 ${l6.toFixed(2)}%</b> → máximo (trailing)`;
 }
 
 function getTrailConfig() {
   return {
-    hft_trail_l1: document.getElementById('trail-l1')?.value || '0.15',
-    hft_trail_l2: document.getElementById('trail-l2')?.value || '0.30',
-    hft_trail_l3: document.getElementById('trail-l3')?.value || '0.50',
+    hft_trail_l1: document.getElementById('trail-l1')?.value || '0.20',
+    hft_trail_l2: document.getElementById('trail-l2')?.value || '0.35',
+    hft_trail_l3: document.getElementById('trail-l3')?.value || '0.55',
     hft_trail_l4: document.getElementById('trail-l4')?.value || '0.80',
     hft_trail_l5: document.getElementById('trail-l5')?.value || '1.30',
-    hft_trail_l6: document.getElementById('trail-l6')?.value || '2.50',
+    hft_trail_l6: document.getElementById('trail-l6')?.value || '2.00',
   };
 }
 
@@ -7387,8 +7387,8 @@ function updateHFTTestnetWarn() {
 function updateHFTProfitPreview() {
   const cap      = parseFloat(document.getElementById('hft-capital')?.value   || '100');
   const risk     = parseFloat(document.getElementById('hft-risk-pct')?.value  || '10');
-  const tp       = parseFloat(document.getElementById('hft-tp-pct')?.value    || '0.50');
-  const sl       = parseFloat(document.getElementById('hft-sl-pct')?.value    || '0.30');
+  const tp       = parseFloat(document.getElementById('hft-tp-pct')?.value    || '0.55');
+  const sl       = parseFloat(document.getElementById('hft-sl-pct')?.value    || '0.35');
   const compound = document.getElementById('hft-compound')?.checked ?? true;
   const tf       = document.getElementById('hft-tf')?.value || '1m';
   const budget   = cap * risk / 100;
@@ -7457,9 +7457,9 @@ async function saveHFTSettings() {
       testnet:    document.getElementById('hft-testnet')?.value    || 'true',
       trail_l1:   trailCfg.hft_trail_l1 || '0.04',
       trail_l2:   trailCfg.hft_trail_l2 || '0.08',
-      trail_l3:   trailCfg.hft_trail_l3 || '0.15',
-      trail_l4:   trailCfg.hft_trail_l4 || '0.15',
-      trail_l5:   trailCfg.hft_trail_l5 || '0.50',
+      trail_l3:   trailCfg.hft_trail_l3 || '0.20',
+      trail_l4:   trailCfg.hft_trail_l4 || '0.20',
+      trail_l5:   trailCfg.hft_trail_l5 || '0.55',
       trail_l6:   trailCfg.hft_trail_l6 || '0.80',
     };
     await fetch('/api/hft/user-settings', {
@@ -7508,7 +7508,7 @@ async function hftStart() {
     capital:        String(capital),
     testnet:        testnet,
     hft_risk_pct:   String(riskPct),
-    hft_tp_pct:     document.getElementById('hft-tp-pct')?.value     || '0.30',
+    hft_tp_pct:     document.getElementById('hft-tp-pct')?.value     || '0.35',
     hft_sl_pct:     document.getElementById('hft-sl-pct')?.value     || '0.20',
     hft_cooldown:   document.getElementById('hft-cooldown')?.value   || '45',
     hft_daily_loss: document.getElementById('hft-daily-loss')?.value || '3.0',
@@ -7517,7 +7517,7 @@ async function hftStart() {
     ...trailCfg,
     ...aiCfg,
   };
-  const trailInfo = parseFloat(config.hft_trail_l1 || '0.15') < 5.00
+  const trailInfo = parseFloat(config.hft_trail_l1 || '0.20') < 5.00
     ? `Trail: BE@${config.hft_trail_l1}% → Lock30@${config.hft_trail_l2}% → Lock50@${config.hft_trail_l3}% → Lock65@${config.hft_trail_l4}% → Lock75@${config.hft_trail_l5}% → Lock80@${config.hft_trail_l6}%\n`
     : 'Trail Stop: desligado\n';
   const aiEnabled = document.getElementById('hft-ai-enabled')?.checked;
