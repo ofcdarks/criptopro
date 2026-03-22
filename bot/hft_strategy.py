@@ -414,6 +414,80 @@ class HFTEngine:
             f'💡 Bot pronto para operar com contexto histórico'
         )
 
+    def reconcile_positions(self):
+        """Na inicialização, detecta posições abertas na Binance e adota no tracking interno.
+        Evita posições órfãs após restart/deploy."""
+        if HFT_MARKET != 'futures' or HFT_TESTNET:
+            return
+        log.info('  🔄 RECONCILE: verificando posições abertas na Binance...')
+        try:
+            all_positions = self.client.futures_position_information()
+            adopted = 0
+            for p in all_positions:
+                pair = p['symbol']
+                amt  = float(p.get('positionAmt', 0))
+                if amt == 0: continue
+                if pair not in HFT_PAIRS:
+                    log.info(f'  ⚠️  {pair} tem posição aberta mas não está nos pares monitorados — ignorando')
+                    continue
+                # Verifica se já temos tracking
+                already_tracked = any(pos['pair'] == pair for pos in self.positions.values())
+                if already_tracked:
+                    log.info(f'  ✅ {pair} já está no tracking')
+                    continue
+                # Adota a posição
+                entry  = float(p.get('entryPrice', 0))
+                side   = 'BUY' if amt > 0 else 'SELL'
+                qty    = abs(amt)
+                pnl    = float(p.get('unRealizedProfit', 0))
+                mark   = float(p.get('markPrice', entry))
+                if entry <= 0:
+                    log.warning(f'  ⚠️  {pair} entry=0 — impossível adotar')
+                    continue
+                # Calcula SL e TP baseado no entry
+                atr_v = self._atr(self.highs.get(pair, []), self.lows.get(pair, []), self.closes.get(pair, []))
+                if atr_v <= 0:
+                    atr_v = entry * 0.003  # fallback 0.3%
+                sl_dist = max(atr_v, entry * HFT_SL_PCT / 100)
+                if side == 'BUY':
+                    sl = entry - sl_dist
+                    tp = entry + entry * HFT_TP_PCT / 100
+                else:
+                    sl = entry + sl_dist
+                    tp = entry - entry * HFT_TP_PCT / 100
+                # Cria posição no tracking
+                import uuid
+                key = f'{pair}_{side}_{uuid.uuid4().hex[:8]}'
+                self.positions[key] = {
+                    'pair': pair,
+                    'side': side,
+                    'entry': entry,
+                    'qty': qty,
+                    'sl': sl,
+                    'tp': tp,
+                    'sl_orig': sl,
+                    'trail_level': 0,
+                    'trail_sl': None,
+                    'opened_at': time.time() - 60,  # assume aberta há 1 min
+                    'strategies': ['reconciled'],
+                    'confidence': 0.5,
+                    'tp_mult': 1.0,
+                    'sl_mult': 1.0,
+                    'reconciled': True,
+                }
+                adopted += 1
+                log.info(f'  🔄 ADOTADA {pair} {side} entry=${entry:.4f} qty={qty} PnL=${pnl:+.4f}')
+            if adopted > 0:
+                self.notify(
+                    f'🔄 Reconciliação: {adopted} posição(ões) adotadas\n'
+                    f'Posições abertas na Binance foram integradas ao bot.\n'
+                    f'Trail stop e SL agora estão ativos.'
+                )
+            else:
+                log.info('  🔄 RECONCILE: nenhuma posição órfã encontrada')
+        except Exception as e:
+            log.warning(f'  ⚠️  RECONCILE falhou: {e}')
+
     # ── PnL History ─────────────────────────────────────────────────────────
 
     def _load_pnl_history(self) -> dict:
@@ -2683,6 +2757,11 @@ def init_hft(capital, client, notify_fn=None):
         _hft_engine.warmup()
     except Exception as e:
         log.warning(f'  ⚠️  Warmup falhou: {e} — bot vai acumular dados em tempo real')
+    # Detecta e adota posições abertas na Binance (sobrevive restart/deploy)
+    try:
+        _hft_engine.reconcile_positions()
+    except Exception as e:
+        log.warning(f'  ⚠️  Reconcile falhou: {e}')
     _hft_engine.running = True
     _start_visibility_thread(_hft_engine)
     return _hft_engine
