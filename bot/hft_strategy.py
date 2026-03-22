@@ -136,7 +136,7 @@ HFT_DAILY_PROTECT_PCT       = float(os.environ.get('HFT_DAILY_PROTECT_PCT',     
 HFT_DAILY_PROTECT_ENABLED   = os.environ.get('HFT_DAILY_PROTECT_ENABLED', 'true').lower() == 'true'
 HFT_COOLDOWN     = int(os.environ.get('HFT_COOLDOWN',      '45'))
 HFT_TIME_EXIT    = int(os.environ.get('HFT_TIME_EXIT',     '1800'))  # 30min — tempo para TP 1.5% em 3m
-HFT_MIN_SIGNALS  = int(os.environ.get('HFT_MIN_SIGNALS',   '3'))
+HFT_MIN_SIGNALS  = int(os.environ.get('HFT_MIN_SIGNALS',   '4'))
 HFT_PAIRS        = [p.strip() for p in os.environ.get('HFT_PAIRS',
     'BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,MATICUSDT,DOTUSDT'
 ).split(',') if p.strip()]
@@ -678,22 +678,32 @@ class HFTEngine:
                     'strategies': []}
 
         # ADX mínimo: só opera em mercado com alguma direção
-        adx_min = float(os.environ.get('HFT_ADX_MIN', '12'))
+        adx_min = float(os.environ.get('HFT_ADX_MIN', '20'))
         adx_cur = self._adx(highs, lows, closes)
         if adx_cur < adx_min:
             return {'side': None, 'score': 0, 'reason': f'ADX {adx_cur:.0f} < {adx_min:.0f} (mercado sem direção)', 'strategies': []}
 
         # Parâmetros calibrados para este par
-        rsi_buy  = self._get_pair_param(pair, 'rsi_buy',  float(os.environ.get('HFT_RSI_BUY', '22.0')))
-        rsi_sell = self._get_pair_param(pair, 'rsi_sell', float(os.environ.get('HFT_RSI_SELL', '78.0')))
+        rsi_buy  = self._get_pair_param(pair, 'rsi_buy',  float(os.environ.get('HFT_RSI_BUY', '18.0')))
+        rsi_sell = self._get_pair_param(pair, 'rsi_sell', float(os.environ.get('HFT_RSI_SELL', '82.0')))
         vol_mult = self._get_pair_param(pair, 'vol_mult',  1.5)
-        min_sc   = self._get_pair_param(pair, 'min_score', float(os.environ.get('HFT_MIN_SCORE', '3.5')))
-        min_sg   = self._get_pair_param(pair, 'min_signals', int(os.environ.get('HFT_MIN_SIGNALS', '3')))
+        min_sc   = self._get_pair_param(pair, 'min_score', float(os.environ.get('HFT_MIN_SCORE', '4.5')))
+        min_sg   = self._get_pair_param(pair, 'min_signals', int(os.environ.get('HFT_MIN_SIGNALS', '4')))
 
         # Filtro macro EMA 50
         ema50      = self._ema(list(closes)[-50:], 50) if len(closes) >= 50 else None
         macro_bull = ema50 and close > ema50 * 1.001
         macro_bear = ema50 and close < ema50 * 0.999
+
+        # MTF filter: pseudo-15m momentum (últimos 5 candles de 3m)
+        cls_list = list(closes)
+        mtf_bull = False; mtf_bear = False
+        if len(cls_list) >= 6:
+            mtf_start = cls_list[-6]  # preço 5 velas atrás
+            mtf_end   = cls_list[-1]  # preço atual
+            mtf_change = (mtf_end - mtf_start) / mtf_start * 100
+            mtf_bull = mtf_change > 0.08  # 0.08% up em 15min equivalente
+            mtf_bear = mtf_change < -0.08
 
         signals = []   # (side, strat, reason, base_weight)
 
@@ -701,9 +711,9 @@ class HFTEngine:
         e3 = self._ema(list(closes)[-3:], 3)
         e8 = self._ema(list(closes)[-8:], 8)
         e21= self._ema(list(closes)[-21:], 21)
-        if e3 > e8 * 1.0001 and e8 > e21 * 0.9998:
+        if e3 > e8 * 1.0005 and e8 > e21 * 0.9995:
             signals.append(('BUY',  'ema_micro', 'EMA bull', 1.0))
-        elif e3 < e8 * 0.9999 and e8 < e21 * 1.0002:
+        elif e3 < e8 * 0.9995 and e8 < e21 * 1.0005:
             signals.append(('SELL', 'ema_micro', 'EMA bear', 1.0))
 
         # 2. RSI (thresholds calibrados)
@@ -721,17 +731,17 @@ class HFTEngine:
             _, _, _, pct_b, bw_v = bb
             if bw_v > 0.06:  # relaxado para 3m (era 0.12)
                 if   pct_b < 0.06: signals.append(('BUY',  'bollinger', f'BB low {pct_b:.2f}', 1.4))
-                elif pct_b < 0.18: signals.append(('BUY',  'bollinger', 'BB near low',          0.8))
+                elif pct_b < 0.10: signals.append(('BUY',  'bollinger', 'BB near low',          0.8))
                 elif pct_b > 0.94: signals.append(('SELL', 'bollinger', f'BB high {pct_b:.2f}', 1.4))
-                elif pct_b > 0.82: signals.append(('SELL', 'bollinger', 'BB near high',         0.8))
+                elif pct_b > 0.90: signals.append(('SELL', 'bollinger', 'BB near high',         0.8))
 
         # 4. VWAP
         vw  = self._vwap(closes, volumes)
         dev = (close - vw) / vw * 100 if vw else 0
         if   dev < -0.35: signals.append(('BUY',  'vwap_dev', f'VWAP {dev:.2f}%',  1.3))
-        elif dev < -0.18: signals.append(('BUY',  'vwap_dev', f'VWAP {dev:.2f}%',  0.7))
+        elif dev < -0.25: signals.append(('BUY',  'vwap_dev', f'VWAP {dev:.2f}%',  0.7))
         elif dev >  0.35: signals.append(('SELL', 'vwap_dev', f'VWAP +{dev:.2f}%', 1.3))
-        elif dev >  0.18: signals.append(('SELL', 'vwap_dev', f'VWAP +{dev:.2f}%', 0.7))
+        elif dev >  0.25: signals.append(('SELL', 'vwap_dev', f'VWAP +{dev:.2f}%', 0.7))
 
         # 5. Volume Momentum (limiar calibrado)
         vols = list(volumes)
@@ -739,8 +749,8 @@ class HFTEngine:
             avg_v = sum(vols[-6:-1]) / 5
             if avg_v > 0 and vols[-1] > avg_v * vol_mult:
                 cls = list(closes)
-                if   cls[-1] > cls[-2] * 1.0008: signals.append(('BUY',  'volume_mom', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
-                elif cls[-1] < cls[-2] * 0.9992: signals.append(('SELL', 'volume_mom', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
+                if   cls[-1] > cls[-2] * 1.0015: signals.append(('BUY',  'volume_mom', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
+                elif cls[-1] < cls[-2] * 0.9985: signals.append(('SELL', 'volume_mom', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
 
         # 6. Stochastic
         if len(closes) >= 12:
@@ -779,6 +789,11 @@ class HFTEngine:
             if side == 'SELL' and macro_bull:  tm = 0.6
             if side == 'BUY'  and macro_bull:  tm = 1.2
             if side == 'SELL' and macro_bear:  tm = 1.2
+            # MTF filter: penaliza sinais contra o momentum de 15m
+            if side == 'BUY'  and mtf_bear: tm *= 0.5
+            if side == 'SELL' and mtf_bull: tm *= 0.5
+            if side == 'BUY'  and mtf_bull: tm *= 1.15
+            if side == 'SELL' and mtf_bear: tm *= 1.15
             if regime in ('trending_up', 'trending_down'):
                 if strat in ('ema_micro', 'macd_fast', 'volume_mom'): tm *= 1.15
             else:
@@ -794,14 +809,14 @@ class HFTEngine:
 
         # Divergência
         tot = buy_score + sell_score
-        if tot > 0 and 0.35 < buy_score / tot < 0.65:
+        if tot > 0 and 0.25 < buy_score / tot < 0.75:
             return {'side': None, 'score': 0, 'reason': f'divergencia [{regime}]', 'strategies': []}
 
-        if buy_count >= min_sg and buy_score >= min_sc and buy_score > sell_score * 1.4:
+        if buy_count >= min_sg and buy_score >= min_sc and buy_score > sell_score * 1.6:
             # Counter-trend: BUY em tendência de baixa → precisa score 30% maior
-            if regime == 'trending_down' and buy_score < min_sc * 1.3:
+            if regime == 'trending_down' and buy_score < min_sc * 1.6:
                 return {'side': None, 'score': 0, 'strategies': [],
-                        'reason': f'BUY contra-tendência precisa score>{min_sc*1.3:.1f} (tem {buy_score:.1f})'}
+                        'reason': f'BUY contra-tendência precisa score>{min_sc*1.6:.1f} (tem {buy_score:.1f})'}
             # Ranging: usa RSI configurável (env HFT_RANGING_RSI_BUY, default=rsi_buy)
             ranging_rsi_buy = float(os.environ.get('HFT_RANGING_RSI_BUY', str(rsi_buy)))
             if regime == 'ranging' and rsi_v > ranging_rsi_buy:
@@ -816,14 +831,14 @@ class HFTEngine:
                     'regime': regime, 'rsi': rsi_v, 'price': close,
                     'confidence': min(buy_score / 6.0, 1.0)}
 
-        if sell_count >= min_sg and sell_score >= min_sc and sell_score > buy_score * 1.4:
+        if sell_count >= min_sg and sell_score >= min_sc and sell_score > buy_score * 1.6:
             if HFT_ONLY_BUY:
                 return {'side': None, 'score': 0, 'strategies': [],
                         'reason': f'SELL ignorado (HFT_ONLY_BUY=true) [{regime}]'}
             # Counter-trend: SELL em tendência de alta → precisa score 30% maior
-            if regime == 'trending_up' and sell_score < min_sc * 1.3:
+            if regime == 'trending_up' and sell_score < min_sc * 1.6:
                 return {'side': None, 'score': 0, 'strategies': [],
-                        'reason': f'SELL contra-tendência precisa score>{min_sc*1.3:.1f} (tem {sell_score:.1f})'}
+                        'reason': f'SELL contra-tendência precisa score>{min_sc*1.6:.1f} (tem {sell_score:.1f})'}
             # Ranging: usa RSI configurável (env HFT_RANGING_RSI_SELL, default=rsi_sell)
             ranging_rsi_sell = float(os.environ.get('HFT_RANGING_RSI_SELL', str(rsi_sell)))
             if regime == 'ranging' and rsi_v < ranging_rsi_sell:
