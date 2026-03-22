@@ -98,8 +98,8 @@ def _hft_save_close(tid, exit_p, pnl, reason):
 log = logging.getLogger('CryptoEdge.HFT')
 
 # ── Config global (env) ───────────────────────────────────────────────────────
-HFT_TP_PCT       = float(os.environ.get('HFT_TP_PCT',      '0.80'))  # Referência para cálculo de viabilidade (NÃO é teto)
-HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.35'))  # 0.35% SL inicial fixo
+HFT_TP_PCT       = float(os.environ.get('HFT_TP_PCT',      '1.50'))  # Referência para cálculo de viabilidade (NÃO é teto)
+HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.60'))  # 0.35% SL inicial fixo
 # ── Trail Stop SEMPRE ATIVO — SEM TP FIXO, LUCRO ILIMITADO ───────────────────
 # ── Trail Stop com LUCRO FIXO GARANTIDO por nível ─────────────────────────────
 # NOVA LÓGICA: cada nível coloca o trail SL em posição FIXA (% do entry).
@@ -107,16 +107,16 @@ HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.35'))  # 0.35% SL 
 # Preço avança → ativa próximo nível → trail SL sobe. Reverte → fecha no trail.
 HFT_TRAIL_ENABLED = True
 # L = trigger (% de move para ativar)
-HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.25'))
-HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.35'))
-HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.55'))
-HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '0.80'))
-HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '1.30'))
-HFT_TRAIL_L6 = float(os.environ.get('HFT_TRAIL_L6', '2.00'))
+HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.30'))
+HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.50'))
+HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.80'))
+HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '1.20'))
+HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '2.00'))
+HFT_TRAIL_L6 = float(os.environ.get('HFT_TRAIL_L6', '3.00'))
 HFT_TRAIL_BE_BUF = float(os.environ.get('HFT_TRAIL_BE_BUF', '0.02'))
 # K = lock offset (onde fica o trail SL). Auto-calculado no runtime.
 # Gaps crescem com o nível = mais lucro preservado em níveis altos
-_TRAIL_GAPS = [0, 0.10, 0.15, 0.20, 0.25, 0.40, 0.50]  # idx=nível
+_TRAIL_GAPS = [0, 0.15, 0.20, 0.30, 0.35, 0.50, 0.70]  # idx=nível
 HFT_NO_TP_CEILING = os.environ.get('HFT_NO_TP_CEILING', 'true').lower() == 'true'
 HFT_RISK_PCT     = float(os.environ.get('HFT_RISK_PCT',    '15.0')) # 15% — budget suficiente para cobrir taxas
 HFT_MAX_TRADES   = int(os.environ.get('HFT_MAX_TRADES',    '5'))   # era 3 → mais oportunidades
@@ -134,13 +134,13 @@ HFT_DAILY_LOSS_MIN         = float(os.environ.get('HFT_DAILY_LOSS_MIN', '2.00'))
 HFT_DAILY_PROTECT_THRESHOLD = float(os.environ.get('HFT_DAILY_PROTECT_THRESHOLD', '0.50'))  # $ mínimo p/ ativar proteção
 HFT_DAILY_PROTECT_PCT       = float(os.environ.get('HFT_DAILY_PROTECT_PCT',       '60'))    # % do pico a proteger
 HFT_DAILY_PROTECT_ENABLED   = os.environ.get('HFT_DAILY_PROTECT_ENABLED', 'true').lower() == 'true'
-HFT_COOLDOWN     = int(os.environ.get('HFT_COOLDOWN',      '45'))
-HFT_TIME_EXIT    = int(os.environ.get('HFT_TIME_EXIT',     '1800'))  # 30min — tempo para TP 1.5% em 3m
-HFT_MIN_SIGNALS  = int(os.environ.get('HFT_MIN_SIGNALS',   '4'))
+HFT_COOLDOWN     = int(os.environ.get('HFT_COOLDOWN',      '180'))
+HFT_TIME_EXIT    = int(os.environ.get('HFT_TIME_EXIT',     '7200'))  # 30min — tempo para TP 1.5% em 3m
+HFT_MIN_SIGNALS  = int(os.environ.get('HFT_MIN_SIGNALS',   '3'))
 HFT_PAIRS        = [p.strip() for p in os.environ.get('HFT_PAIRS',
     'BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,MATICUSDT,DOTUSDT'
 ).split(',') if p.strip()]
-HFT_TIMEFRAME    = os.environ.get('HFT_TIMEFRAME', '1m')
+HFT_TIMEFRAME    = os.environ.get('HFT_TIMEFRAME', '15m')
 HFT_MIN_VOLUME   = float(os.environ.get('HFT_MIN_VOL_USDT', '5000000'))
 HFT_TESTNET      = os.environ.get('BOT_TESTNET', 'true').lower() == 'true'
 HFT_MIN_RR       = float(os.environ.get('HFT_MIN_RR',      '1.4')) # era 1.5
@@ -614,7 +614,7 @@ class HFTEngine:
         return round(100 * abs(pdi - ndi) / (pdi + ndi), 1) if (pdi + ndi) > 0 else 0
 
     # ── SUPORTE E RESISTÊNCIA — swing highs/lows recentes ─────────────────
-    def _find_sr_levels(self, highs, lows, lookback=80):
+    def _find_sr_levels(self, highs, lows, lookback=120):
         h = list(highs); l = list(lows)
         if len(h) < 6: return [], []
         if len(h) < lookback: lookback = len(h)
@@ -637,8 +637,8 @@ class HFTEngine:
     def _htf_trend(self, closes):
         c = list(closes)
         if len(c) < 40: return 'neutral', 0
-        ema_fast = self._ema(c[-20:], 20)
-        ema_slow = self._ema(c[-60:], 60) if len(c) >= 60 else self._ema(c, len(c))
+        ema_fast = self._ema(c[-30:], 30)
+        ema_slow = self._ema(c[-100:], 100) if len(c) >= 100 else self._ema(c, len(c))
         if ema_fast and ema_slow and ema_slow > 0:
             trend_pct = (ema_fast - ema_slow) / ema_slow * 100
             if trend_pct > 0.08:   return 'up', trend_pct
@@ -731,7 +731,7 @@ class HFTEngine:
         # ════════════════════════════════════════════════════════════════════
         htf_dir, htf_force = self._htf_trend(closes)
         adx_cur = self._adx(highs, lows, closes)
-        adx_min = float(os.environ.get('HFT_ADX_MIN', '20'))
+        adx_min = float(os.environ.get('HFT_ADX_MIN', '18'))
 
         # Mercado sem direção: não opera
         if adx_cur < adx_min and htf_dir == 'neutral':
@@ -761,9 +761,9 @@ class HFTEngine:
         # ════════════════════════════════════════════════════════════════════
         # ETAPA 3: CONFLUENCE DE INDICADORES
         # ════════════════════════════════════════════════════════════════════
-        rsi_buy  = self._get_pair_param(pair, 'rsi_buy',  float(os.environ.get('HFT_RSI_BUY', '18.0')))
-        rsi_sell = self._get_pair_param(pair, 'rsi_sell', float(os.environ.get('HFT_RSI_SELL', '82.0')))
-        min_sc   = self._get_pair_param(pair, 'min_score', float(os.environ.get('HFT_MIN_SCORE', '4.5')))
+        rsi_buy  = self._get_pair_param(pair, 'rsi_buy',  float(os.environ.get('HFT_RSI_BUY', '25.0')))
+        rsi_sell = self._get_pair_param(pair, 'rsi_sell', float(os.environ.get('HFT_RSI_SELL', '75.0')))
+        min_sc   = self._get_pair_param(pair, 'min_score', float(os.environ.get('HFT_MIN_SCORE', '4.0')))
         vol_mult = self._get_pair_param(pair, 'vol_mult', 1.5)
 
         buy_signals  = []  # (strat, reason, weight)
@@ -782,7 +782,7 @@ class HFTEngine:
         bb = self._bollinger(closes)
         if bb:
             _, _, _, pct_b, bw_v = bb
-            if bw_v > 0.06:
+            if bw_v > 0.08:
                 if pct_b < 0.05:   buy_signals.append(('bb', f'BB {pct_b:.2f}', 1.8))
                 elif pct_b < 0.12: buy_signals.append(('bb', f'BB {pct_b:.2f}', 1.0))
                 if pct_b > 0.95:   sell_signals.append(('bb', f'BB {pct_b:.2f}', 1.8))
@@ -873,7 +873,7 @@ class HFTEngine:
         sell_score += funding_sell
 
         # ── DECISÃO FINAL — precisa CONFLUÊNCIA ──────────────────────────
-        min_signals = int(os.environ.get('HFT_MIN_SIGNALS', '4'))
+        min_signals = int(os.environ.get('HFT_MIN_SIGNALS', '3'))
 
         # BUY: precisa direção permitida + N sinais + score mínimo + dominância
         if (allow_buy and buy_count >= min_signals and buy_score >= min_sc
