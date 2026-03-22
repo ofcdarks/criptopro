@@ -635,15 +635,27 @@ class HFTEngine:
 
     # ── HIGHER TIMEFRAME — pseudo 15m/1h usando candles de 3m ─────────────
     def _htf_trend(self, closes):
+        """Detecta tendência HTF com múltiplas confirmações."""
         c = list(closes)
-        if len(c) < 40: return 'neutral', 0
+        if len(c) < 60: return 'neutral', 0
         ema_fast = self._ema(c[-30:], 30)
-        ema_slow = self._ema(c[-100:], 100) if len(c) >= 100 else self._ema(c, len(c))
-        if ema_fast and ema_slow and ema_slow > 0:
-            trend_pct = (ema_fast - ema_slow) / ema_slow * 100
-            if trend_pct > 0.08:   return 'up', trend_pct
-            elif trend_pct < -0.08: return 'down', trend_pct
-        return 'neutral', 0
+        ema_slow = self._ema(c[-80:], 80) if len(c) >= 80 else self._ema(c, len(c))
+        price = c[-1]
+        if not ema_fast or not ema_slow or ema_slow == 0: return 'neutral', 0
+        trend_pct = (ema_fast - ema_slow) / ema_slow * 100
+        slope = (c[-1] - c[-10]) / c[-10] * 100 if len(c) >= 12 else 0
+        up = 0; dn = 0
+        if price > ema_fast: up += 1
+        else: dn += 1
+        if price > ema_slow: up += 1
+        else: dn += 1
+        if ema_fast > ema_slow: up += 1
+        else: dn += 1
+        if slope > 0.05: up += 1
+        elif slope < -0.05: dn += 1
+        if up >= 3: return 'up', trend_pct
+        if dn >= 3: return 'down', trend_pct
+        return 'neutral', trend_pct
 
     def _higher_lows(self, lows, count=3):
         l = list(lows)
@@ -702,8 +714,8 @@ class HFTEngine:
         lows   = self.lows[pair];   volumes = self.volumes[pair]
         opens  = self.opens[pair]
 
-        if len(closes) < 40:
-            return {'side': None, 'score': 0, 'reason': 'aguardando dados (40 candles)', 'strategies': []}
+        if len(closes) < 80:
+            return {'side': None, 'score': 0, 'reason': f'aguardando dados ({len(closes)}/80 candles)', 'strategies': []}
 
         close  = closes[-1]
         regime = self._detect_regime(pair)
@@ -733,16 +745,25 @@ class HFTEngine:
         adx_cur = self._adx(highs, lows, closes)
         adx_min = float(os.environ.get('HFT_ADX_MIN', '18'))
 
+        # Sem dados suficientes para HTF → não opera
+        if htf_dir == 'neutral' and len(closes) < 100:
+            return {'side': None, 'score': 0, 'strategies': [],
+                    'reason': f'HTF neutral + poucos dados ({len(closes)} candles) — esperando'}
+
         # Mercado sem direção: não opera
         if adx_cur < adx_min and htf_dir == 'neutral':
             return {'side': None, 'score': 0, 'strategies': [],
                     'reason': f'ADX {adx_cur:.0f} + HTF neutral — sem direção'}
 
-        # Direções permitidas baseado no HTF
+        # REGRA PRINCIPAL: só opera NA DIREÇÃO do HTF
         allow_buy  = htf_dir in ('up', 'neutral')
         allow_sell = htf_dir in ('down', 'neutral')
 
-        # Se ADX alto + trend forte: SOMENTE na direção da tendência
+        # Se HTF tem direção clara: SOMENTE nessa direção
+        if htf_dir == 'up':    allow_sell = False
+        if htf_dir == 'down':  allow_buy  = False
+
+        # Se ADX forte (>30): reforça — zero exceções
         if adx_cur >= 30:
             if htf_dir == 'up':   allow_sell = False
             if htf_dir == 'down': allow_buy  = False
