@@ -106,11 +106,11 @@ HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.35'))  # 0.35% SL 
 HFT_TRAIL_ENABLED = True  # sempre ativo — motor principal de saída
 # DEFAULTS SINCRONIZADOS com frontend preset "equilibrado"
 # Se o bot reiniciar sem frontend, os valores são idênticos ao preset padrão
-HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.28'))  # break-even (cobre taxa + margem)
-HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.45'))  # lock 30%
-HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.70'))  # lock 50%
-HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '1.10'))  # lock 65%
-HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '1.60'))  # lock 75%
+HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.15'))  # break-even (cobre taxa + margem)
+HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.30'))  # lock 30%
+HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.50'))  # lock 50%
+HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '0.80'))  # lock 65%
+HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '1.30'))  # lock 75%
 HFT_TRAIL_L6 = float(os.environ.get('HFT_TRAIL_L6', '2.50'))  # lock 80% (trailing dinâmico)
 HFT_TRAIL_BE_BUF = float(os.environ.get('HFT_TRAIL_BE_BUF', '0.02'))  # buffer acima da taxa p/ BE
 HFT_NO_TP_CEILING = os.environ.get('HFT_NO_TP_CEILING', 'true').lower() == 'true'
@@ -153,7 +153,7 @@ HFT_FEE_RATE       = float(os.environ.get('HFT_FEE_RATE',       '0.0005'))# taxa
 # ── Slippage Buffer — protege contra diferença entre preço visto e executado ──
 # Slippage estimado em % do preço. Com posições pequenas (~$50-170), slippage é ~0.10-0.20%
 # O bot só permite fechar trade se: lucro bruto > taxa + slippage estimado
-HFT_SLIPPAGE_PCT   = float(os.environ.get('HFT_SLIPPAGE_PCT',   '0.15'))  # 0.15% slippage estimado
+HFT_SLIPPAGE_PCT   = float(os.environ.get('HFT_SLIPPAGE_PCT',   '0.03'))  # 0.15% slippage estimado
 HFT_SLIPPAGE_LEARN = os.environ.get('HFT_SLIPPAGE_LEARN', 'true').lower() == 'true'  # aprende com trades reais
 HFT_LEVERAGE       = int(os.environ.get('HFT_LEVERAGE',          '5'))     # alavancagem Binance
 # Pula confirmação de vela (entra direto no sinal) — útil em tendências fortes

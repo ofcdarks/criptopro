@@ -7170,9 +7170,9 @@ function initHFTPanel() {
 // ─── Trail Stop Progressivo — UI ─────────────────────────────────────────────
 
 const TRAIL_PRESETS = {
-  conservador: { l1: 0.22, l2: 0.35, l3: 0.55, l4: 0.85, l5: 1.30, l6: 2.00 },
-  equilibrado: { l1: 0.28, l2: 0.45, l3: 0.70, l4: 1.10, l5: 1.60, l6: 2.50 },
-  agressivo:   { l1: 0.35, l2: 0.55, l3: 0.90, l4: 1.40, l5: 2.20, l6: 3.50 },
+  conservador: { l1: 0.12, l2: 0.25, l3: 0.40, l4: 0.65, l5: 1.00, l6: 1.80 },
+  equilibrado: { l1: 0.15, l2: 0.30, l3: 0.50, l4: 0.80, l5: 1.30, l6: 2.50 },
+  agressivo:   { l1: 0.20, l2: 0.40, l3: 0.65, l4: 1.00, l5: 1.60, l6: 3.00 },
   desligado:   { l1: 9.99, l2: 15.0, l3: 20.0, l4: 30.0, l5: 50.0, l6: 80.0 },
 };
 
@@ -7216,11 +7216,11 @@ function updateTrailDisplay(level, value) {
 }
 
 function updateTrailPreview() {
-  const l1 = parseFloat(document.getElementById('trail-l1')?.value || 0.28);
-  const l2 = parseFloat(document.getElementById('trail-l2')?.value || 0.45);
-  const l3 = parseFloat(document.getElementById('trail-l3')?.value || 0.70);
-  const l4 = parseFloat(document.getElementById('trail-l4')?.value || 1.10);
-  const l5 = parseFloat(document.getElementById('trail-l5')?.value || 1.60);
+  const l1 = parseFloat(document.getElementById('trail-l1')?.value || 0.15);
+  const l2 = parseFloat(document.getElementById('trail-l2')?.value || 0.30);
+  const l3 = parseFloat(document.getElementById('trail-l3')?.value || 0.50);
+  const l4 = parseFloat(document.getElementById('trail-l4')?.value || 0.80);
+  const l5 = parseFloat(document.getElementById('trail-l5')?.value || 1.30);
   const l6 = parseFloat(document.getElementById('trail-l6')?.value || 2.50);
   const el = document.getElementById('trail-preview-text');
   if (!el) return;
@@ -7241,11 +7241,11 @@ function updateTrailPreview() {
 
 function getTrailConfig() {
   return {
-    hft_trail_l1: document.getElementById('trail-l1')?.value || '0.28',
-    hft_trail_l2: document.getElementById('trail-l2')?.value || '0.45',
-    hft_trail_l3: document.getElementById('trail-l3')?.value || '0.70',
-    hft_trail_l4: document.getElementById('trail-l4')?.value || '1.10',
-    hft_trail_l5: document.getElementById('trail-l5')?.value || '1.60',
+    hft_trail_l1: document.getElementById('trail-l1')?.value || '0.15',
+    hft_trail_l2: document.getElementById('trail-l2')?.value || '0.30',
+    hft_trail_l3: document.getElementById('trail-l3')?.value || '0.50',
+    hft_trail_l4: document.getElementById('trail-l4')?.value || '0.80',
+    hft_trail_l5: document.getElementById('trail-l5')?.value || '1.30',
     hft_trail_l6: document.getElementById('trail-l6')?.value || '2.50',
   };
 }
@@ -7387,8 +7387,8 @@ function updateHFTTestnetWarn() {
 function updateHFTProfitPreview() {
   const cap      = parseFloat(document.getElementById('hft-capital')?.value   || '100');
   const risk     = parseFloat(document.getElementById('hft-risk-pct')?.value  || '10');
-  const tp       = parseFloat(document.getElementById('hft-tp-pct')?.value    || '0.70');
-  const sl       = parseFloat(document.getElementById('hft-sl-pct')?.value    || '0.45');
+  const tp       = parseFloat(document.getElementById('hft-tp-pct')?.value    || '0.50');
+  const sl       = parseFloat(document.getElementById('hft-sl-pct')?.value    || '0.30');
   const compound = document.getElementById('hft-compound')?.checked ?? true;
   const tf       = document.getElementById('hft-tf')?.value || '1m';
   const budget   = cap * risk / 100;
@@ -7458,9 +7458,9 @@ async function saveHFTSettings() {
       trail_l1:   trailCfg.hft_trail_l1 || '0.04',
       trail_l2:   trailCfg.hft_trail_l2 || '0.08',
       trail_l3:   trailCfg.hft_trail_l3 || '0.15',
-      trail_l4:   trailCfg.hft_trail_l4 || '0.28',
+      trail_l4:   trailCfg.hft_trail_l4 || '0.15',
       trail_l5:   trailCfg.hft_trail_l5 || '0.50',
-      trail_l6:   trailCfg.hft_trail_l6 || '1.10',
+      trail_l6:   trailCfg.hft_trail_l6 || '0.80',
     };
     await fetch('/api/hft/user-settings', {
       method: 'POST',
@@ -7508,7 +7508,7 @@ async function hftStart() {
     capital:        String(capital),
     testnet:        testnet,
     hft_risk_pct:   String(riskPct),
-    hft_tp_pct:     document.getElementById('hft-tp-pct')?.value     || '0.45',
+    hft_tp_pct:     document.getElementById('hft-tp-pct')?.value     || '0.30',
     hft_sl_pct:     document.getElementById('hft-sl-pct')?.value     || '0.20',
     hft_cooldown:   document.getElementById('hft-cooldown')?.value   || '45',
     hft_daily_loss: document.getElementById('hft-daily-loss')?.value || '3.0',
@@ -7517,7 +7517,7 @@ async function hftStart() {
     ...trailCfg,
     ...aiCfg,
   };
-  const trailInfo = parseFloat(config.hft_trail_l1 || '0.28') < 5.00
+  const trailInfo = parseFloat(config.hft_trail_l1 || '0.15') < 5.00
     ? `Trail: BE@${config.hft_trail_l1}% → Lock30@${config.hft_trail_l2}% → Lock50@${config.hft_trail_l3}% → Lock65@${config.hft_trail_l4}% → Lock75@${config.hft_trail_l5}% → Lock80@${config.hft_trail_l6}%\n`
     : 'Trail Stop: desligado\n';
   const aiEnabled = document.getElementById('hft-ai-enabled')?.checked;
