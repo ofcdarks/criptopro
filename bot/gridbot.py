@@ -1054,8 +1054,22 @@ def main():
                 except: pass
                 eng = get_hft_engine()
                 if eng and not eng.running:
+                    # Reset daily stats para permitir que o bot rode
+                    eng.daily_pnl = 0.0
+                    eng.daily_wins = 0
+                    eng.daily_losses = 0
+                    eng.daily_breakevens = 0
+                    eng.consec_losses = 0
+                    eng.consec_wins = 0
+                    eng.peak_daily_pnl = 0.0
+                    eng.daily_protect_active = False
+                    eng.daily_protect_floor = 0.0
+                    eng.daily_protect_stopped = False
+                    eng._daily_protect_below_count = 0
+                    eng.paused_until = 0
                     eng.running = True
-                    log.info('  Bot reativado via /start Telegram')
+                    log.info('  Bot reativado via /start Telegram (daily stats resetados)')
+                    eng.notify('🟢 Bot REATIVADO via /start\nDaily stats resetados — operando normalmente')
 
         def _hft_visibility_loop():
             """Thread auxiliar: só verifica flags de /stop e /start do Telegram.
@@ -1154,14 +1168,30 @@ def main():
             # Watchdog loop
             while state['running']:
                 time.sleep(2)
-                # Check for Telegram /stop command
+                # Check for Telegram /stop command — pausa HFT (não mata o processo)
                 import os as _osc
                 if _osc.path.exists('/tmp/hft_stop_flag'):
                     try: _osc.remove('/tmp/hft_stop_flag')
                     except: pass
-                    log.info("  🛑 Comando /stop recebido via Telegram — encerrando...")
-                    state['running'] = False
-                    break
+                    eng = get_hft_engine()
+                    if eng and eng.running:
+                        eng.running = False
+                        log.info("  🛑 HFT pausado via /stop Telegram")
+                        eng.notify('🛑 Bot PAUSADO via /stop\nEnvie /start para reativar')
+                # Check for Telegram /start command
+                if _osc.path.exists('/tmp/hft_start_flag'):
+                    try: _osc.remove('/tmp/hft_start_flag')
+                    except: pass
+                    eng = get_hft_engine()
+                    if eng and not eng.running:
+                        eng.daily_pnl = 0.0; eng.daily_wins = 0; eng.daily_losses = 0
+                        eng.daily_breakevens = 0; eng.consec_losses = 0; eng.consec_wins = 0
+                        eng.peak_daily_pnl = 0.0; eng.daily_protect_active = False
+                        eng.daily_protect_floor = 0.0; eng.daily_protect_stopped = False
+                        eng._daily_protect_below_count = 0; eng.paused_until = 0
+                        eng.running = True
+                        log.info("  🟢 HFT reativado via /start Telegram")
+                        eng.notify('🟢 Bot REATIVADO via /start\nDaily stats resetados')
                 if not twm.is_alive():
                     log.warning("  ⚠️ WebSocket desconectado — reconectando em 5s...")
                     break
