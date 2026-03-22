@@ -126,7 +126,7 @@ HFT_DAILY_LOSS   = float(os.environ.get('HFT_DAILY_LOSS',  '3.0'))
 # Fallback: se não tem dado anterior, usa HFT_DAILY_LOSS_FALLBACK_PCT do capital
 HFT_DYNAMIC_DAILY_LOSS     = os.environ.get('HFT_DYNAMIC_DAILY_LOSS', 'true').lower() == 'true'
 HFT_DAILY_LOSS_FALLBACK_PCT = float(os.environ.get('HFT_DAILY_LOSS_FALLBACK_PCT', '2.0'))  # % se não tem dado
-HFT_DAILY_LOSS_MIN         = float(os.environ.get('HFT_DAILY_LOSS_MIN', '0.20'))  # mínimo $ p/ não travar o bot
+HFT_DAILY_LOSS_MIN         = float(os.environ.get('HFT_DAILY_LOSS_MIN', '2.00'))  # mínimo $2 p/ não travar o bot
 # ── Daily Profit Protector — preserva lucro do dia ───────────────────────────
 # Sem meta de gain (roda o dia inteiro), mas protege o lucro acumulado.
 # Quando PnL do dia atinge threshold → ativa trailing diário.
@@ -1676,6 +1676,12 @@ class HFTEngine:
                 if not self.daily_protect_stopped and self._daily_protect_below_count >= 3:
                     self.daily_protect_stopped = True
                     self.running = False
+                    # FECHA TODAS as posições abertas
+                    open_count = len(self.positions)
+                    if open_count > 0:
+                        for k, p in list(self.positions.items()):
+                            cur = list(self.closes.get(p['pair'], [p['entry']]))[-1]
+                            self._close_position(k, cur, f'Daily-Protect-Stop')
                     log.warning(
                         f'  🛡 DAILY PROTECT STOP: PnL ${pnl:.4f} ≤ piso ${self.daily_protect_floor:.4f} '
                         f'(pico foi ${self.peak_daily_pnl:.4f}) [confirmado {self._daily_protect_below_count}x]'
@@ -1685,6 +1691,7 @@ class HFTEngine:
                         f'Pico do dia: ${self.peak_daily_pnl:.4f}\n'
                         f'Lucro preservado: ${pnl:.4f}\n'
                         f'Piso: ${self.daily_protect_floor:.4f}\n'
+                        f'Posições fechadas: {open_count}\n'
                         f'💰 Lucro do dia protegido! Bot volta amanhã.'
                     )
                 elif not self.daily_protect_stopped:
@@ -1696,6 +1703,19 @@ class HFTEngine:
     def _is_daily_profit_protected(self):
         """Retorna True se o bot deve parar de abrir novas posições."""
         return self.daily_protect_stopped
+
+    def _cleanup_orphan_positions(self, current_price):
+        """Fecha posições abertas há mais de 2h — evita posições órfãs."""
+        max_age = HFT_TIME_EXIT * 4  # 4x time_exit = ~2h
+        now = time.time()
+        for key, pos in list(self.positions.items()):
+            age = now - pos['opened_at']
+            if age > max_age:
+                pair = pos['pair']
+                cur = list(self.closes.get(pair, [pos['entry']]))[-1] if pair in self.closes else current_price
+                pnl_pct = (cur - pos['entry']) / pos['entry'] * 100 if pos['side'] == 'BUY' else (pos['entry'] - cur) / pos['entry'] * 100
+                log.warning(f'  🧹 ORPHAN CLEANUP {pair} {pos["side"]} aberta há {int(age/60)}min pnl={pnl_pct:+.2f}%')
+                self._close_position(key, cur, f'Orphan-cleanup ({int(age/60)}min)')
 
     def _check_exit(self, pair, price):
         for key, pos in list(self.positions.items()):
@@ -1826,50 +1846,24 @@ class HFTEngine:
             pnl_gross    = (price - entry) * pos['qty'] if side == 'BUY' else (entry - price) * pos['qty']
             pnl_net      = pnl_gross - total_cost
 
-            # ── Decisões de saída — SEM TP FIXO ──────────────────────────
-            # SLIP GATE timeout: máximo 60s aguardando, depois fecha mesmo com loss
-            slip_gate_timeout = 60  # segundos
-            slip_gate_since = pos.get('slip_gate_since', 0)
-            slip_gate_expired = slip_gate_since > 0 and (time.time() - slip_gate_since) > slip_gate_timeout
-
+            # ── Decisões de saída ─────────────────────────────────────
             if side == 'BUY':
                 if not HFT_NO_TP_CEILING and price >= tp:
                     self._close_position(key, price, f'TP +{(price/entry-1)*100:.2f}%')
                 elif price <= active_sl:
-                    # FEE+SLIP GATE: trail diz fechar mas lucro não cobre custos reais
-                    if tlv > 0 and pnl_net < 0 and price > sl_orig and not slip_gate_expired:
-                        if slip_gate_since == 0:
-                            self.positions[key]['slip_gate_since'] = time.time()
-                        log.info(f'  🛡 SLIP GATE {pair}: lucro ${pnl_gross:.4f} < custo ${total_cost:.4f} (fee ${fee_rt_real:.4f} + slip ${slippage_est:.4f}) — aguardando ({int(time.time() - self.positions[key].get("slip_gate_since", time.time()))}s)')
-                    else:
-                        if slip_gate_expired:
-                            log.warning(f'  ⏰ SLIP GATE TIMEOUT {pair}: fechando após {slip_gate_timeout}s')
-                        locked = (active_sl - entry) / entry * 100
-                        self._close_position(key, price, f'{sl_lbl} {locked:+.3f}% net:${pnl_net:+.4f}{"(slip-timeout)" if slip_gate_expired else ""}')
+                    # Trail disse pra fechar → FECHA. Sem discussão.
+                    locked = (active_sl - entry) / entry * 100
+                    self._close_position(key, price, f'{sl_lbl} {locked:+.3f}% net:${pnl_net:+.4f}')
                 elif age > HFT_TIME_EXIT * 3 and pnl_pct <= 0:
                     self._close_position(key, price, f'Time-exit max (loss) {pnl_pct:+.3f}%')
-                else:
-                    # Preço subiu acima do trail — limpa SLIP GATE timer
-                    if slip_gate_since > 0:
-                        self.positions[key]['slip_gate_since'] = 0
             else:
                 if not HFT_NO_TP_CEILING and price <= tp:
                     self._close_position(key, price, f'TP +{(entry/price-1)*100:.2f}%')
                 elif price >= active_sl:
-                    if tlv > 0 and pnl_net < 0 and price < sl_orig and not slip_gate_expired:
-                        if slip_gate_since == 0:
-                            self.positions[key]['slip_gate_since'] = time.time()
-                        log.info(f'  🛡 SLIP GATE {pair}: lucro ${pnl_gross:.4f} < custo ${total_cost:.4f} (fee ${fee_rt_real:.4f} + slip ${slippage_est:.4f}) — aguardando ({int(time.time() - self.positions[key].get("slip_gate_since", time.time()))}s)')
-                    else:
-                        if slip_gate_expired:
-                            log.warning(f'  ⏰ SLIP GATE TIMEOUT {pair}: fechando após {slip_gate_timeout}s')
-                        locked = (entry - active_sl) / entry * 100
-                        self._close_position(key, price, f'{sl_lbl} {locked:+.3f}% net:${pnl_net:+.4f}{"(slip-timeout)" if slip_gate_expired else ""}')
+                    locked = (entry - active_sl) / entry * 100
+                    self._close_position(key, price, f'{sl_lbl} {locked:+.3f}% net:${pnl_net:+.4f}')
                 elif age > HFT_TIME_EXIT * 3 and pnl_pct <= 0:
                     self._close_position(key, price, f'Time-exit max (loss) {pnl_pct:+.3f}%')
-                else:
-                    if slip_gate_since > 0:
-                        self.positions[key]['slip_gate_since'] = 0
 
     def _poll_close_flags(self, pair, close):
         import glob as _glob
@@ -1918,6 +1912,8 @@ class HFTEngine:
 
         # Ticks: verificar SL/TP apenas (sem I/O de disco por tick)
         self._check_exit(pair, close)
+        # Fecha posições órfãs: abertas há muito tempo mesmo com bot parado
+        self._cleanup_orphan_positions(close)
         # Sincronização periódica com Binance (max 1x a cada 30s)
         self._sync_positions_with_binance()
 
@@ -1944,10 +1940,18 @@ class HFTEngine:
                 if self.running:
                     self.running = False
                     reason = f'lucro anterior ${self.prev_day_profit:.2f}' if self.prev_day_profit > 0 else f'fallback {HFT_DAILY_LOSS_FALLBACK_PCT}%'
+                    # FECHA TODAS as posições abertas imediatamente
+                    open_count = len(self.positions)
+                    if open_count > 0:
+                        log.warning(f'  🛑 DAILY LOSS: fechando {open_count} posições abertas')
+                        for k, p in list(self.positions.items()):
+                            cur = list(self.closes.get(p['pair'], [p['entry']]))[-1]
+                            self._close_position(k, cur, f'Daily-Loss-Stop')
                     self.notify(
                         f'🛑 Daily Loss atingido\n'
                         f'Perda: -${loss_abs:.4f} ≥ limite ${self.dynamic_loss_limit:.4f}\n'
                         f'Regra: {reason}\n'
+                        f'Posições fechadas: {open_count}\n'
                         f'💡 Nunca perde mais do que ganhou. Bot volta amanhã.'
                     )
                 return
