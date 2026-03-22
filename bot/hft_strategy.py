@@ -202,20 +202,19 @@ HFT_VOLATILITY_PAUSE_PCT  = float(os.environ.get('HFT_VOL_PAUSE_PCT', '3.0'))  #
 HFT_VOLATILITY_PAUSE_SEC  = int(os.environ.get('HFT_VOL_PAUSE_SEC', '1800'))   # pausa 30min
 
 STRATEGY_NAMES = [
-    'ema_micro', 'rsi_reversion', 'bollinger', 'vwap_dev',
-    'volume_mom', 'stochastic', 'cci', 'macd_fast', 'price_action'
+    'rsi', 'bb', 'vwap', 'ema', 'stoch', 'macd', 'vol', 'pa', 'cci'
 ]
 
 BASE_WEIGHTS = {
-    'ema_micro':     1.0,
-    'rsi_reversion': 1.5,
-    'bollinger':     1.2,
-    'vwap_dev':      1.2,
-    'volume_mom':    1.3,
-    'stochastic':    1.1,
-    'cci':           1.0,
-    'macd_fast':     0.9,
-    'price_action':  1.4,
+    'rsi':   1.5,
+    'bb':    1.2,
+    'vwap':  1.2,
+    'ema':   1.0,
+    'stoch': 1.1,
+    'macd':  0.9,
+    'vol':   1.3,
+    'pa':    1.4,
+    'cci':   1.0,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -614,6 +613,58 @@ class HFTEngine:
         ndi = 100 * sum(dm_n[-period:]) / period / atr_v
         return round(100 * abs(pdi - ndi) / (pdi + ndi), 1) if (pdi + ndi) > 0 else 0
 
+    # ── SUPORTE E RESISTÊNCIA — swing highs/lows recentes ─────────────────
+    def _find_sr_levels(self, highs, lows, lookback=80):
+        h = list(highs); l = list(lows)
+        if len(h) < 6: return [], []
+        if len(h) < lookback: lookback = len(h)
+        h = h[-lookback:]; l = l[-lookback:]
+        supports = []; resistances = []
+        for i in range(2, len(h) - 2):
+            if h[i] > h[i-1] and h[i] > h[i-2] and h[i] > h[i+1] and h[i] > h[i+2]:
+                resistances.append(h[i])
+            if l[i] < l[i-1] and l[i] < l[i-2] and l[i] < l[i+1] and l[i] < l[i+2]:
+                supports.append(l[i])
+        return supports, resistances
+
+    def _near_level(self, price, levels, threshold_pct=0.15):
+        for lv in levels:
+            if abs(price - lv) / price * 100 < threshold_pct:
+                return lv
+        return None
+
+    # ── HIGHER TIMEFRAME — pseudo 15m/1h usando candles de 3m ─────────────
+    def _htf_trend(self, closes):
+        c = list(closes)
+        if len(c) < 40: return 'neutral', 0
+        ema_fast = self._ema(c[-20:], 20)
+        ema_slow = self._ema(c[-60:], 60) if len(c) >= 60 else self._ema(c, len(c))
+        if ema_fast and ema_slow and ema_slow > 0:
+            trend_pct = (ema_fast - ema_slow) / ema_slow * 100
+            if trend_pct > 0.08:   return 'up', trend_pct
+            elif trend_pct < -0.08: return 'down', trend_pct
+        return 'neutral', 0
+
+    def _higher_lows(self, lows, count=3):
+        l = list(lows)
+        if len(l) < 20: return False
+        swings = []
+        for i in range(2, min(len(l)-2, 50)):
+            if l[i] < l[i-1] and l[i] < l[i-2] and l[i] < l[i+1] and l[i] < l[i+2]:
+                swings.append(l[i])
+                if len(swings) >= count: break
+        return len(swings) >= count and all(swings[i] > swings[i+1] for i in range(len(swings)-1))
+
+    def _lower_highs(self, highs, count=3):
+        h = list(highs)
+        if len(h) < 20: return False
+        swings = []
+        for i in range(2, min(len(h)-2, 50)):
+            if h[i] > h[i-1] and h[i] > h[i-2] and h[i] > h[i+1] and h[i] > h[i+2]:
+                swings.append(h[i])
+                if len(swings) >= count: break
+        return len(swings) >= count and all(swings[i] < swings[i+1] for i in range(len(swings)-1))
+
     # ── Regime de Mercado ─────────────────────────────────────────────────────
 
     def _detect_regime(self, pair):
@@ -638,223 +689,233 @@ class HFTEngine:
         # Janela ampla: das 06h às 23h59 horário local — cobre toda sessão cripto relevante
         return 6 <= h < 24
 
-    # ── Geração de Sinal ─────────────────────────────────────────────────────
+    # ── Geração de Sinal — CONFLUÊNCIA PROFISSIONAL ─────────────────────────
+    # Abordagem em 4 etapas:
+    # 1) HTF TREND: define direção permitida (só opera a favor)
+    # 2) S/R LEVELS: verifica se preço está em zona de interesse
+    # 3) CONFLUENCE: mínimo 3 indicadores devem concordar
+    # 4) STRUCTURE: higher lows (BUY) ou lower highs (SELL)
+    # Só entra quando TODAS as etapas aprovam.
 
     def _generate_signal(self, pair):
         closes = self.closes[pair]; highs = self.highs[pair]
         lows   = self.lows[pair];   volumes = self.volumes[pair]
         opens  = self.opens[pair]
 
-        if len(closes) < 30:
-            return {'side': None, 'score': 0, 'reason': 'aguardando dados', 'strategies': []}
+        if len(closes) < 40:
+            return {'side': None, 'score': 0, 'reason': 'aguardando dados (40 candles)', 'strategies': []}
 
         close  = closes[-1]
         regime = self._detect_regime(pair)
         if regime == 'choppy':
-            return {'side': None, 'score': 0, 'reason': 'choppy', 'strategies': []}
+            return {'side': None, 'score': 0, 'reason': 'choppy — sem trade', 'strategies': []}
 
-        # ── FILTRO CRÍTICO: não entra se não cobrir a taxa ──────────────────
-        # Calcula taxa real round-trip + lucro mínimo exigido
+        # ── FILTRO: ATR e taxa ──────────────────────────────────────────────
         budget_v     = self.capital * HFT_RISK_PCT / 100
         position_v   = budget_v * HFT_LEVERAGE
-        fee_rt_usdt  = position_v * HFT_FEE_RATE * 2          # taxa entrada + saída em $
-        min_gross    = fee_rt_usdt + HFT_MIN_NET_PROFIT        # mínimo bruto = taxa + lucro mínimo
-        min_tp_pct   = min_gross / position_v * 100             # % mínimo do TP
-
-        # Bloqueia se o TP configurado não cobre taxa + lucro mínimo
+        fee_rt_usdt  = position_v * HFT_FEE_RATE * 2
+        min_gross    = fee_rt_usdt + HFT_MIN_NET_PROFIT
+        min_tp_pct   = min_gross / position_v * 100
         if HFT_TP_PCT < min_tp_pct:
-            return {'side': None, 'score': 0,
-                    'reason': f'TP {HFT_TP_PCT}% não cobre taxa ${fee_rt_usdt:.3f} + lucro mín ${HFT_MIN_NET_PROFIT} (precisa ≥{min_tp_pct:.2f}%)',
-                    'strategies': []}
-
-        # Bloqueia se ATR atual é menor que o mínimo para atingir o TP
+            return {'side': None, 'score': 0, 'strategies': [],
+                    'reason': f'TP {HFT_TP_PCT}% não cobre taxa+lucro (precisa ≥{min_tp_pct:.2f}%)'}
         atr_check     = self._atr(highs, lows, closes)
         atr_pct_check = atr_check / close * 100 if close > 0 else 0
-        # ATR mínimo = pelo menos 15% do TP (apenas garante que mercado não está morto)
         atr_min_for_tp = HFT_TP_PCT * 0.15
         if atr_pct_check < max(HFT_MIN_ATR_PCT, atr_min_for_tp):
-            return {'side': None, 'score': 0,
-                    'reason': f'{pair.replace("USDT","")} sem amplitude ATR={atr_pct_check:.3f}% — não cobre taxa ${fee_rt_usdt:.3f}',
-                    'strategies': []}
+            return {'side': None, 'score': 0, 'strategies': [],
+                    'reason': f'{pair.replace("USDT","")} ATR={atr_pct_check:.3f}% baixo'}
 
-        # ADX mínimo: só opera em mercado com alguma direção
-        adx_min = float(os.environ.get('HFT_ADX_MIN', '20'))
+        # ════════════════════════════════════════════════════════════════════
+        # ETAPA 1: HTF TREND — define direção permitida
+        # ════════════════════════════════════════════════════════════════════
+        htf_dir, htf_force = self._htf_trend(closes)
         adx_cur = self._adx(highs, lows, closes)
-        if adx_cur < adx_min:
-            return {'side': None, 'score': 0, 'reason': f'ADX {adx_cur:.0f} < {adx_min:.0f} (mercado sem direção)', 'strategies': []}
+        adx_min = float(os.environ.get('HFT_ADX_MIN', '20'))
 
-        # Parâmetros calibrados para este par
+        # Mercado sem direção: não opera
+        if adx_cur < adx_min and htf_dir == 'neutral':
+            return {'side': None, 'score': 0, 'strategies': [],
+                    'reason': f'ADX {adx_cur:.0f} + HTF neutral — sem direção'}
+
+        # Direções permitidas baseado no HTF
+        allow_buy  = htf_dir in ('up', 'neutral')
+        allow_sell = htf_dir in ('down', 'neutral')
+
+        # Se ADX alto + trend forte: SOMENTE na direção da tendência
+        if adx_cur >= 30:
+            if htf_dir == 'up':   allow_sell = False
+            if htf_dir == 'down': allow_buy  = False
+
+        # ════════════════════════════════════════════════════════════════════
+        # ETAPA 2: S/R LEVELS — preço está numa zona de interesse?
+        # ════════════════════════════════════════════════════════════════════
+        supports, resistances = self._find_sr_levels(highs, lows)
+        near_support    = self._near_level(close, supports, 0.20)
+        near_resistance = self._near_level(close, resistances, 0.20)
+
+        # Bonus para trades em S/R (não obrigatório, mas dá pontos extras)
+        sr_bonus_buy  = 1.5 if near_support else 0.0
+        sr_bonus_sell = 1.5 if near_resistance else 0.0
+
+        # ════════════════════════════════════════════════════════════════════
+        # ETAPA 3: CONFLUENCE DE INDICADORES
+        # ════════════════════════════════════════════════════════════════════
         rsi_buy  = self._get_pair_param(pair, 'rsi_buy',  float(os.environ.get('HFT_RSI_BUY', '18.0')))
         rsi_sell = self._get_pair_param(pair, 'rsi_sell', float(os.environ.get('HFT_RSI_SELL', '82.0')))
-        vol_mult = self._get_pair_param(pair, 'vol_mult',  1.5)
         min_sc   = self._get_pair_param(pair, 'min_score', float(os.environ.get('HFT_MIN_SCORE', '4.5')))
-        min_sg   = self._get_pair_param(pair, 'min_signals', int(os.environ.get('HFT_MIN_SIGNALS', '4')))
+        vol_mult = self._get_pair_param(pair, 'vol_mult', 1.5)
 
-        # Filtro macro EMA 50
-        ema50      = self._ema(list(closes)[-50:], 50) if len(closes) >= 50 else None
-        macro_bull = ema50 and close > ema50 * 1.001
-        macro_bear = ema50 and close < ema50 * 0.999
+        buy_signals  = []  # (strat, reason, weight)
+        sell_signals = []
 
-        # MTF filter: pseudo-15m momentum (últimos 5 candles de 3m)
-        cls_list = list(closes)
-        mtf_bull = False; mtf_bear = False
-        if len(cls_list) >= 6:
-            mtf_start = cls_list[-6]  # preço 5 velas atrás
-            mtf_end   = cls_list[-1]  # preço atual
-            mtf_change = (mtf_end - mtf_start) / mtf_start * 100
-            mtf_bull = mtf_change > 0.08  # 0.08% up em 15min equivalente
-            mtf_bear = mtf_change < -0.08
-
-        signals = []   # (side, strat, reason, base_weight)
-
-        # 1. EMA Micro
-        e3 = self._ema(list(closes)[-3:], 3)
-        e8 = self._ema(list(closes)[-8:], 8)
-        e21= self._ema(list(closes)[-21:], 21)
-        if e3 > e8 * 1.0005 and e8 > e21 * 0.9995:
-            signals.append(('BUY',  'ema_micro', 'EMA bull', 1.0))
-        elif e3 < e8 * 0.9995 and e8 < e21 * 1.0005:
-            signals.append(('SELL', 'ema_micro', 'EMA bear', 1.0))
-
-        # 2. RSI (thresholds calibrados)
+        # ── RSI extremo ────────────────────────────────────────────
         rsi_v = self._rsi(closes)
         if rsi_v < rsi_buy:
-            w = 1.8 if rsi_v < rsi_buy - 8 else 0.9
-            signals.append(('BUY',  'rsi_reversion', f'RSI {rsi_v:.0f}', w))
+            w = 2.0 if rsi_v < rsi_buy - 8 else 1.2
+            buy_signals.append(('rsi', f'RSI {rsi_v:.0f}', w))
         elif rsi_v > rsi_sell:
-            w = 1.8 if rsi_v > rsi_sell + 8 else 0.9
-            signals.append(('SELL', 'rsi_reversion', f'RSI {rsi_v:.0f}', w))
+            w = 2.0 if rsi_v > rsi_sell + 8 else 1.2
+            sell_signals.append(('rsi', f'RSI {rsi_v:.0f}', w))
 
-        # 3. Bollinger
+        # ── Bollinger Bands — toque na banda ───────────────────────
         bb = self._bollinger(closes)
         if bb:
             _, _, _, pct_b, bw_v = bb
-            if bw_v > 0.06:  # relaxado para 3m (era 0.12)
-                if   pct_b < 0.06: signals.append(('BUY',  'bollinger', f'BB low {pct_b:.2f}', 1.4))
-                elif pct_b < 0.10: signals.append(('BUY',  'bollinger', 'BB near low',          0.8))
-                elif pct_b > 0.94: signals.append(('SELL', 'bollinger', f'BB high {pct_b:.2f}', 1.4))
-                elif pct_b > 0.90: signals.append(('SELL', 'bollinger', 'BB near high',         0.8))
+            if bw_v > 0.06:
+                if pct_b < 0.05:   buy_signals.append(('bb', f'BB {pct_b:.2f}', 1.8))
+                elif pct_b < 0.12: buy_signals.append(('bb', f'BB {pct_b:.2f}', 1.0))
+                if pct_b > 0.95:   sell_signals.append(('bb', f'BB {pct_b:.2f}', 1.8))
+                elif pct_b > 0.88: sell_signals.append(('bb', f'BB {pct_b:.2f}', 1.0))
 
-        # 4. VWAP
+        # ── VWAP deviation ─────────────────────────────────────────
         vw  = self._vwap(closes, volumes)
         dev = (close - vw) / vw * 100 if vw else 0
-        if   dev < -0.35: signals.append(('BUY',  'vwap_dev', f'VWAP {dev:.2f}%',  1.3))
-        elif dev < -0.25: signals.append(('BUY',  'vwap_dev', f'VWAP {dev:.2f}%',  0.7))
-        elif dev >  0.35: signals.append(('SELL', 'vwap_dev', f'VWAP +{dev:.2f}%', 1.3))
-        elif dev >  0.25: signals.append(('SELL', 'vwap_dev', f'VWAP +{dev:.2f}%', 0.7))
+        if dev < -0.30:   buy_signals.append(('vwap', f'VWAP {dev:.2f}%', 1.5))
+        elif dev < -0.20: buy_signals.append(('vwap', f'VWAP {dev:.2f}%', 0.8))
+        if dev > 0.30:    sell_signals.append(('vwap', f'VWAP +{dev:.2f}%', 1.5))
+        elif dev > 0.20:  sell_signals.append(('vwap', f'VWAP +{dev:.2f}%', 0.8))
 
-        # 5. Volume Momentum (limiar calibrado)
-        vols = list(volumes)
+        # ── EMA structure (3 > 8 > 21) ────────────────────────────
+        e3  = self._ema(list(closes)[-5:], 3)
+        e8  = self._ema(list(closes)[-10:], 8)
+        e21 = self._ema(list(closes)[-25:], 21)
+        if e3 and e8 and e21:
+            if e3 > e8 > e21:  buy_signals.append(('ema', 'EMA aligned up', 1.3))
+            elif e3 < e8 < e21: sell_signals.append(('ema', 'EMA aligned down', 1.3))
+
+        # ── Stochastic oversold/overbought ─────────────────────────
+        if len(closes) >= 12:
+            stk, std = self._stochastic(closes, highs, lows)
+            if stk < 18 and std < 25:   buy_signals.append(('stoch', f'Stoch {stk:.0f}', 1.3))
+            elif stk > 82 and std > 75:  sell_signals.append(('stoch', f'Stoch {stk:.0f}', 1.3))
+
+        # ── MACD histogram momentum ───────────────────────────────
+        if len(closes) >= 15:
+            ml, sl, hist = self._macd_fast(closes)
+            if hist > 0 and hist > abs(ml) * 0.15:  buy_signals.append(('macd', f'MACD+', 1.0))
+            elif hist < 0 and abs(hist) > abs(ml) * 0.15: sell_signals.append(('macd', f'MACD-', 1.0))
+
+        # ── Volume spike + direction ──────────────────────────────
+        vols = list(volumes); cls = list(closes)
         if len(vols) >= 6:
             avg_v = sum(vols[-6:-1]) / 5
             if avg_v > 0 and vols[-1] > avg_v * vol_mult:
-                cls = list(closes)
-                if   cls[-1] > cls[-2] * 1.0015: signals.append(('BUY',  'volume_mom', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
-                elif cls[-1] < cls[-2] * 0.9985: signals.append(('SELL', 'volume_mom', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
+                if cls[-1] > cls[-2] * 1.0012:  buy_signals.append(('vol', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
+                elif cls[-1] < cls[-2] * 0.9988: sell_signals.append(('vol', f'Vol {vols[-1]/avg_v:.1f}x', 1.5))
 
-        # 6. Stochastic
-        if len(closes) >= 12:
-            stk, std = self._stochastic(closes, highs, lows)
-            if   stk < 22 and std < 28: signals.append(('BUY',  'stochastic', f'Stoch {stk:.0f}', 1.2))
-            elif stk > 78 and std > 72: signals.append(('SELL', 'stochastic', f'Stoch {stk:.0f}', 1.2))
-
-        # 7. CCI
-        if len(closes) >= 14:
-            cci_v = self._cci(closes, highs, lows)
-            if   cci_v < -90: signals.append(('BUY',  'cci', f'CCI {cci_v:.0f}', 1.1))
-            elif cci_v >  90: signals.append(('SELL', 'cci', f'CCI {cci_v:.0f}', 1.1))
-
-        # 8. MACD Fast
-        if len(closes) >= 15:
-            ml, sl, hist = self._macd_fast(closes)
-            if   hist > 0 and hist > abs(ml) * 0.12: signals.append(('BUY',  'macd_fast', f'MACD {hist:.4f}', 1.0))
-            elif hist < 0 and abs(hist) > abs(ml) * 0.12: signals.append(('SELL', 'macd_fast', f'MACD {hist:.4f}', 1.0))
-
-        # 9. Price Action
+        # ── Price Action (engulfing/pinbar) ───────────────────────
         if len(opens) >= 2:
             pa = self._price_action(opens, closes, highs, lows)
-            if pa == 'BUY':   signals.append(('BUY',  'price_action', 'Pinbar/Engulf bull', 1.5))
-            elif pa == 'SELL': signals.append(('SELL', 'price_action', 'Pinbar/Engulf bear', 1.5))
+            if pa == 'BUY':   buy_signals.append(('pa', 'Pinbar/Engulf bull', 1.8))
+            elif pa == 'SELL': sell_signals.append(('pa', 'Pinbar/Engulf bear', 1.8))
 
-        # ── Pesos adaptativos + filtros ───────────────────────────────────
-        buy_score = 0.0; sell_score = 0.0
-        buy_count = 0;   sell_count = 0
-        buy_strats = []; sell_strats = []
-        buy_reasons = []; sell_reasons = []
+        # ── CCI extremo ──────────────────────────────────────────
+        if len(closes) >= 14:
+            cci_v = self._cci(closes, highs, lows)
+            if cci_v < -120:  buy_signals.append(('cci', f'CCI {cci_v:.0f}', 1.2))
+            elif cci_v > 120: sell_signals.append(('cci', f'CCI {cci_v:.0f}', 1.2))
 
-        for side, strat, reason, base_w in signals:
-            w  = self.learner.get_weight(pair, strat)
-            tm = 1.0
-            if side == 'BUY'  and macro_bear: tm = 0.6
-            if side == 'SELL' and macro_bull:  tm = 0.6
-            if side == 'BUY'  and macro_bull:  tm = 1.2
-            if side == 'SELL' and macro_bear:  tm = 1.2
-            # MTF filter: penaliza sinais contra o momentum de 15m
-            if side == 'BUY'  and mtf_bear: tm *= 0.5
-            if side == 'SELL' and mtf_bull: tm *= 0.5
-            if side == 'BUY'  and mtf_bull: tm *= 1.15
-            if side == 'SELL' and mtf_bear: tm *= 1.15
-            if regime in ('trending_up', 'trending_down'):
-                if strat in ('ema_micro', 'macd_fast', 'volume_mom'): tm *= 1.15
-            else:
-                if strat in ('rsi_reversion', 'bollinger', 'vwap_dev', 'stochastic'): tm *= 1.15
-            w *= tm
+        # ════════════════════════════════════════════════════════════════════
+        # ETAPA 4: STRUCTURE + DECISÃO
+        # ════════════════════════════════════════════════════════════════════
+        has_structure_buy  = self._higher_lows(lows)   # higher lows = bullish structure
+        has_structure_sell = self._lower_highs(highs)   # lower highs = bearish structure
 
-            if side == 'BUY':
-                buy_score += w; buy_count += 1
-                buy_strats.append(strat); buy_reasons.append(reason)
-            else:
-                sell_score += w; sell_count += 1
-                sell_strats.append(strat); sell_reasons.append(reason)
+        # Calcula scores
+        buy_score  = sum(w for _, _, w in buy_signals) + sr_bonus_buy
+        sell_score = sum(w for _, _, w in sell_signals) + sr_bonus_sell
+        buy_count  = len(buy_signals)
+        sell_count = len(sell_signals)
 
-        # Divergência
-        tot = buy_score + sell_score
-        if tot > 0 and 0.25 < buy_score / tot < 0.75:
-            return {'side': None, 'score': 0, 'reason': f'divergencia [{regime}]', 'strategies': []}
+        # HTF bonus/penalty
+        if htf_dir == 'up':    buy_score *= 1.2;  sell_score *= 0.6
+        elif htf_dir == 'down': sell_score *= 1.2; buy_score *= 0.6
 
-        if buy_count >= min_sg and buy_score >= min_sc and buy_score > sell_score * 1.6:
-            # Counter-trend: BUY em tendência de baixa → precisa score 30% maior
-            if regime == 'trending_down' and buy_score < min_sc * 1.6:
-                return {'side': None, 'score': 0, 'strategies': [],
-                        'reason': f'BUY contra-tendência precisa score>{min_sc*1.6:.1f} (tem {buy_score:.1f})'}
-            # Ranging: usa RSI configurável (env HFT_RANGING_RSI_BUY, default=rsi_buy)
-            ranging_rsi_buy = float(os.environ.get('HFT_RANGING_RSI_BUY', str(rsi_buy)))
-            if regime == 'ranging' and rsi_v > ranging_rsi_buy:
-                return {'side': None, 'score': 0, 'strategies': [],
-                        'reason': f'BUY ranging RSI {rsi_v:.0f} > {ranging_rsi_buy:.0f}'}
-            # Funding rate bonus/penalidade
-            funding_adj = self._funding_score_adjustment(pair, 'BUY')
-            buy_score += funding_adj
-            return {'side': 'BUY', 'score': buy_score, 'count': buy_count,
-                    'reason': ' + '.join(buy_reasons[:3]) + (f' +funding' if funding_adj > 0 else ''),
-                    'strategies': list(set(buy_strats)),
-                    'regime': regime, 'rsi': rsi_v, 'price': close,
-                    'confidence': min(buy_score / 6.0, 1.0)}
+        # Structure bonus
+        if has_structure_buy:  buy_score *= 1.15
+        if has_structure_sell: sell_score *= 1.15
 
-        if sell_count >= min_sg and sell_score >= min_sc and sell_score > buy_score * 1.6:
+        # Regime bonus
+        if regime == 'trending_up':   buy_score *= 1.1
+        if regime == 'trending_down': sell_score *= 1.1
+
+        # Learner adjustment
+        for strat, _, _ in buy_signals:
+            buy_score += self.learner.get_weight(pair, strat) - 1.0
+        for strat, _, _ in sell_signals:
+            sell_score += self.learner.get_weight(pair, strat) - 1.0
+
+        # Funding rate
+        funding_buy  = self._funding_score_adjustment(pair, 'BUY')
+        funding_sell = self._funding_score_adjustment(pair, 'SELL')
+        buy_score  += funding_buy
+        sell_score += funding_sell
+
+        # ── DECISÃO FINAL — precisa CONFLUÊNCIA ──────────────────────────
+        min_signals = int(os.environ.get('HFT_MIN_SIGNALS', '4'))
+
+        # BUY: precisa direção permitida + N sinais + score mínimo + dominância
+        if (allow_buy and buy_count >= min_signals and buy_score >= min_sc
+                and buy_score > sell_score * 1.8):
+            buy_strats  = [s for s, _, _ in buy_signals]
+            buy_reasons = [r for _, r, _ in buy_signals]
+            conf = min(buy_score / 7.0, 1.0)
+            reason_parts = buy_reasons[:4]
+            if near_support: reason_parts.append(f'S/R ${near_support:.4f}')
+            if has_structure_buy: reason_parts.append('HL✓')
+            if htf_dir == 'up': reason_parts.append(f'HTF↑{htf_force:.2f}%')
+            return {
+                'side': 'BUY', 'score': buy_score, 'count': buy_count,
+                'reason': ' + '.join(reason_parts),
+                'strategies': list(set(buy_strats)),
+                'regime': regime, 'rsi': rsi_v, 'price': close,
+                'confidence': conf
+            }
+
+        # SELL
+        if (allow_sell and sell_count >= min_signals and sell_score >= min_sc
+                and sell_score > buy_score * 1.8):
             if HFT_ONLY_BUY:
                 return {'side': None, 'score': 0, 'strategies': [],
-                        'reason': f'SELL ignorado (HFT_ONLY_BUY=true) [{regime}]'}
-            # Counter-trend: SELL em tendência de alta → precisa score 30% maior
-            if regime == 'trending_up' and sell_score < min_sc * 1.6:
-                return {'side': None, 'score': 0, 'strategies': [],
-                        'reason': f'SELL contra-tendência precisa score>{min_sc*1.6:.1f} (tem {sell_score:.1f})'}
-            # Ranging: usa RSI configurável (env HFT_RANGING_RSI_SELL, default=rsi_sell)
-            ranging_rsi_sell = float(os.environ.get('HFT_RANGING_RSI_SELL', str(rsi_sell)))
-            if regime == 'ranging' and rsi_v < ranging_rsi_sell:
-                return {'side': None, 'score': 0, 'strategies': [],
-                        'reason': f'SELL ranging RSI {rsi_v:.0f} < {ranging_rsi_sell:.0f}'}
-            # Funding rate bonus/penalidade
-            funding_adj = self._funding_score_adjustment(pair, 'SELL')
-            sell_score += funding_adj
-            return {'side': 'SELL', 'score': sell_score, 'count': sell_count,
-                    'reason': ' + '.join(sell_reasons[:3]) + (f' +funding' if funding_adj > 0 else ''),
-                    'strategies': list(set(sell_strats)),
-                    'regime': regime, 'rsi': rsi_v, 'price': close,
-                    'confidence': min(sell_score / 6.0, 1.0)}
+                        'reason': f'SELL ignorado (ONLY_BUY)'}
+            sell_strats  = [s for s, _, _ in sell_signals]
+            sell_reasons = [r for _, r, _ in sell_signals]
+            conf = min(sell_score / 7.0, 1.0)
+            reason_parts = sell_reasons[:4]
+            if near_resistance: reason_parts.append(f'R ${near_resistance:.4f}')
+            if has_structure_sell: reason_parts.append('LH✓')
+            if htf_dir == 'down': reason_parts.append(f'HTF↓{htf_force:.2f}%')
+            return {
+                'side': 'SELL', 'score': sell_score, 'count': sell_count,
+                'reason': ' + '.join(reason_parts),
+                'strategies': list(set(sell_strats)),
+                'regime': regime, 'rsi': rsi_v, 'price': close,
+                'confidence': conf
+            }
 
         return {'side': None, 'score': 0, 'strategies': [],
-                'reason': f'sem consenso B:{buy_count}({buy_score:.1f}) S:{sell_count}({sell_score:.1f}) [{regime}]'}
+                'reason': f'sem confluência B:{buy_count}({buy_score:.1f}) S:{sell_count}({sell_score:.1f}) HTF:{htf_dir} [{regime}]'}
 
     # ── FILTRO DE CONFIRMAÇÃO ─────────────────────────────────────────────────
     # Lógica:
