@@ -2893,6 +2893,23 @@ app.post('/api/hft/clear-stale', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// ── ZERAR TUDO: apaga todo histórico de trades e PnL ──────────────────────────
+app.post('/api/hft/reset-all', requireAuth, async (req, res) => {
+  try {
+    // Apaga todos os bot_trades do usuário
+    db.run("DELETE FROM bot_trades WHERE username=?", [req.user], true);
+    // Apaga trades manuais também
+    db.run("DELETE FROM trades WHERE username=?", [req.user], true);
+    // Reseta PnL history file
+    const pnlFile = '/data/hft_pnl_history.json';
+    try { require('fs').writeFileSync(pnlFile, '{}'); } catch {}
+    // Reseta capital persistido
+    const capFile = '/data/hft_capital.json';
+    try { require('fs').unlinkSync(capFile); } catch {}
+    res.json({ ok: true, message: 'Histórico zerado. Contagem começa agora.' });
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 app.post('/api/hft/close', requireAuth, async (req, res) => {
   try {
     const { trade_id, pair } = req.body;

@@ -985,7 +985,8 @@ def main():
             try:
                 from telegram_notify import _send
                 _send(text)
-            except Exception: pass
+            except Exception as e:
+                log.warning(f'  ⚠️  Telegram notify falhou: {e}')
 
         # ── AUTO-CALIBRAÇÃO: roda backtest para achar params ótimos por par ──
         try:

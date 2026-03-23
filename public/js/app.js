@@ -7587,6 +7587,24 @@ async function hftClearStale() {
   } catch(e) { showToast('❌ ' + e.message, true); }
 }
 
+async function hftResetAll() {
+  if (!await showConfirm('🔄 ZERAR TUDO', '⚠️ Isso apaga TODO o histórico de trades, PnL e estatísticas.\n\nA contagem recomeça do ZERO.\n\nTem certeza?')) return;
+  if (!await showConfirm('Confirmação final', 'Última chance — isso é IRREVERSÍVEL. Continuar?')) return;
+  try {
+    const r = await fetch('/api/hft/reset-all', {
+      method: 'POST',
+      headers: { ...auth.headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✅ Histórico zerado — contagem começa agora!');
+      setTimeout(() => { loadHFTStats(); loadDashboard(); }, 1000);
+    }
+    else showToast('❌ ' + (d.error || 'Erro'), true);
+  } catch(e) { showToast('❌ ' + e.message, true); }
+}
+
 async function hftManualClose(tradeId, sym) {
   if (!await showConfirm('Fechar ' + sym, `Fechar a posição ${sym} agora ao preço de mercado?`)) return;
   try {

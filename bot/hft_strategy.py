@@ -1966,13 +1966,17 @@ class HFTEngine:
                 self.positions[key]['peak_pnl_pct'] = pnl_pct
 
             # ── TRAILING STOP — LUCRO FIXO GARANTIDO POR NÍVEL ─────────
-            # Cada nível coloca trail SL em posição FIXA (% do entry).
-            # L1=cobre custos, L2+=lucro crescente. Trail NUNCA recua.
-            # Preço avança → próximo nível → trail SL sobe. Reverte → fecha.
             cur_level = pos.get('trail_level', 0)
             trail_sl  = pos.get('trail_sl')
             new_level = cur_level
             new_tsl   = trail_sl
+
+            # Debug: log trail status periodically (a cada ~30s baseado no tick count)
+            _tc = pos.get('_trail_debug_count', 0) + 1
+            self.positions[key]['_trail_debug_count'] = _tc
+            if _tc % 10 == 1:  # a cada ~10 ticks
+                log.info(f'  🔍 TRAIL DEBUG {pair} {side}: pnl={pnl_pct:+.3f}% cur_level={cur_level} trail_sl={trail_sl} '
+                         f'L1={HFT_TRAIL_L1}% L2={HFT_TRAIL_L2}% L3={HFT_TRAIL_L3}%')
 
             # Tabela de níveis: (level, trigger, lock_offset)
             # K (lock offset) = trigger - gap. Mínimo = custo real (fee+slip+buf)
@@ -2448,8 +2452,16 @@ class HFTEngine:
             for pos in self.positions.values():
                 cur = list(self.closes.get(pos['pair'], [pos['entry']]))[-1]
                 pnl_pos = (cur - pos['entry']) * pos['qty'] if pos['side'] == 'BUY' else (pos['entry'] - cur) * pos['qty']
+                pnl_pct = (cur - pos['entry']) / pos['entry'] * 100 if pos['side'] == 'BUY' else (pos['entry'] - cur) / pos['entry'] * 100
                 age_min = int((time.time() - pos['opened_at']) / 60)
-                pos_info.append(f'  📌 {pos["side"]} {pos["pair"].replace("USDT","")} @ ${pos["entry"]:.4f} | PnL: {"+$" if pnl_pos>=0 else "-$"}{abs(pnl_pos):.4f} ({age_min}min)')
+                tlv = pos.get('trail_level', 0)
+                tsl = pos.get('trail_sl')
+                trail_str = f' 🔒L{tlv}' if tlv > 0 else ''
+                tsl_str = f' SL:${tsl:.4f}' if tsl else ''
+                pos_info.append(
+                    f'  📌 {pos["side"]} {pos["pair"].replace("USDT","")} @ ${pos["entry"]:.4f} | '
+                    f'{"+$" if pnl_pos>=0 else "-$"}{abs(pnl_pos):.4f} ({pnl_pct:+.2f}%){trail_str}{tsl_str} ({age_min}min)'
+                )
             status_str = '\n<b>Posições abertas:</b>\n' + '\n'.join(pos_info) + '\n'
 
         pending_str = f'\n⏳ {pending_count} sinal(is) aguardando confirmação' if pending_count > 0 else ''
