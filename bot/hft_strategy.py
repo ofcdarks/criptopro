@@ -497,13 +497,19 @@ class HFTEngine:
 
     def _load_pnl_history(self) -> dict:
         """Carrega histórico de PnL mensal/anual do arquivo JSON."""
+        default = {'daily': {}, 'monthly': {}, 'annual': {}}
         try:
             if os.path.exists(self._pnl_file):
                 with open(self._pnl_file) as f:
-                    return _json.load(f)
+                    data = _json.load(f)
+                # Garante estrutura correta
+                for k in ('daily', 'monthly', 'annual'):
+                    if k not in data:
+                        data[k] = {}
+                return data
         except Exception:
             pass
-        return {'daily': {}, 'monthly': {}, 'annual': {}}
+        return default
 
     def _save_pnl_history(self):
         """Persiste histórico de PnL."""
@@ -556,9 +562,9 @@ class HFTEngine:
                 'win_rate':   round(w / effective * 100, 1) if effective > 0 else 0.0,
             }
 
-        today_db  = self._pnl_data['daily'].get(day, {})
-        month_db  = self._pnl_data['monthly'].get(month, {})
-        year_db   = self._pnl_data['annual'].get(year, {})
+        today_db  = self._pnl_data.get('daily', {}).get(day, {})
+        month_db  = self._pnl_data.get('monthly', {}).get(month, {})
+        year_db   = self._pnl_data.get('annual', {}).get(year, {})
 
         # Mescla com contadores em memória (mais recentes que o arquivo)
         today_live = {
@@ -1417,7 +1423,10 @@ class HFTEngine:
         try:
             if not HFT_TESTNET:
                 if HFT_MARKET == 'futures':
-                    order = self.client.futures_create_order(symbol=pair, side=cs, type='MARKET', quantity=qty)
+                    order = self.client.futures_create_order(
+                        symbol=pair, side=cs, type='MARKET', quantity=qty,
+                        reduceOnly=True  # CRÍTICO: fecha posição, NÃO abre nova
+                    )
                     # Captura preço REAL de execução
                     avg_p = float(order.get('avgPrice') or 0)
                     if avg_p > 0:

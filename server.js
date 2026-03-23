@@ -2902,7 +2902,7 @@ app.post('/api/hft/reset-all', requireAuth, async (req, res) => {
     db.run("DELETE FROM trades WHERE username=?", [req.user], true);
     // Reseta PnL history file
     const pnlFile = '/data/hft_pnl_history.json';
-    try { require('fs').writeFileSync(pnlFile, '{}'); } catch {}
+    try { require('fs').writeFileSync(pnlFile, '{"daily":{},"monthly":{},"annual":{}}'); } catch {}
     // Reseta capital persistido
     const capFile = '/data/hft_capital.json';
     try { require('fs').unlinkSync(capFile); } catch {}
