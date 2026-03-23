@@ -117,6 +117,11 @@ HFT_TRAIL_BE_BUF = float(os.environ.get('HFT_TRAIL_BE_BUF', '0.02'))
 # K = lock offset (onde fica o trail SL). Auto-calculado no runtime.
 # Gaps crescem com o nível = mais lucro preservado em níveis altos
 _TRAIL_GAPS = [0, 0.15, 0.20, 0.30, 0.35, 0.50, 0.70]  # idx=nível
+# Log trail config na inicialização
+logging.getLogger('hft').info(
+    f'  📊 Trail config: L1={HFT_TRAIL_L1}% L2={HFT_TRAIL_L2}% L3={HFT_TRAIL_L3}% '
+    f'L4={HFT_TRAIL_L4}% L5={HFT_TRAIL_L5}% L6={HFT_TRAIL_L6}%'
+)
 HFT_NO_TP_CEILING = os.environ.get('HFT_NO_TP_CEILING', 'true').lower() == 'true'
 HFT_RISK_PCT     = float(os.environ.get('HFT_RISK_PCT',    '15.0')) # 15% — budget suficiente para cobrir taxas
 HFT_MAX_TRADES   = int(os.environ.get('HFT_MAX_TRADES',    '5'))   # era 3 → mais oportunidades
@@ -2019,7 +2024,7 @@ class HFTEngine:
                         f'  🔒 TRAIL L{new_level} ({lnames.get(new_level,"?")}) {pair} {side} '
                         f'pnl=+{pnl_pct:.3f}% trail={locked_pct:+.3f}% (${new_tsl:,.5f})'
                     )
-                    if new_level >= 2:
+                    if new_level >= 1:
                         self.notify(
                             f'🔒 Trail L{new_level} — {pair.replace("USDT","")}\n'
                             f'Lucro atual: +{pnl_pct:.2f}% | Travado: {locked_pct:+.2f}%\n'
