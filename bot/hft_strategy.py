@@ -1420,6 +1420,7 @@ class HFTEngine:
         from binance.enums import SIDE_BUY, SIDE_SELL, ORDER_TYPE_MARKET
         cs = SIDE_SELL if side == 'BUY' else SIDE_BUY
         actual_price = price  # fallback
+        close_success = HFT_TESTNET  # testnet always succeeds
         try:
             if not HFT_TESTNET:
                 if HFT_MARKET == 'futures':
@@ -1427,19 +1428,21 @@ class HFTEngine:
                         symbol=pair, side=cs, type='MARKET', quantity=qty,
                         reduceOnly=True  # CRÍTICO: fecha posição, NÃO abre nova
                     )
+                    close_success = True
                     # Captura preço REAL de execução
                     avg_p = float(order.get('avgPrice') or 0)
                     if avg_p > 0:
                         actual_price = avg_p
                 else:
                     order = self.client.create_order(symbol=pair, side=cs, type=ORDER_TYPE_MARKET, quantity=qty)
+                    close_success = True
                     fills = order.get('fills', [])
                     if fills:
                         actual_price = sum(float(f['price'])*float(f['qty']) for f in fills) / \
                                        sum(float(f['qty']) for f in fills)
 
                 # ── Registra slippage real ────────────────────────────────
-                if HFT_SLIPPAGE_LEARN and actual_price != price:
+                if close_success and HFT_SLIPPAGE_LEARN and actual_price != price:
                     slip_pct = abs(actual_price - price) / price * 100
                     self._slippage_history.append(slip_pct)
                     if pair not in self._slippage_by_pair:
@@ -1450,11 +1453,30 @@ class HFTEngine:
         except Exception as e:
             err_str = str(e)
             log.error(f'  HFT close {pair} erro: {err_str}')
-            self.notify(
-                f'❌ ERRO ao fechar {side} {pair.replace("USDT","")}\n'
-                f'Erro Binance: {err_str[:200]}\n'
-                f'⚠️ Feche manualmente na Binance!'
-            )
+            # Se reduceOnly falhou, verifica se posição ainda existe na Binance
+            try:
+                bp = {p['symbol']: p for p in self.client.futures_position_information() if float(p.get('positionAmt', 0)) != 0}
+                if pair in bp:
+                    # Posição AINDA aberta na Binance — NÃO remove do tracking
+                    log.error(f'  ⚠️  {pair} AINDA ABERTA na Binance — mantendo no tracking')
+                    self.notify(
+                        f'❌ ERRO ao fechar {side} {pair.replace("USDT","")}\n'
+                        f'Erro: {err_str[:150]}\n'
+                        f'⚠️ Posição AINDA ABERTA — bot vai tentar fechar novamente'
+                    )
+                    return  # NÃO remove da memória — tenta de novo no próximo tick
+                else:
+                    # Posição já foi fechada (por outro meio) — ok, continua
+                    close_success = True
+                    log.info(f'  ℹ️  {pair} não encontrada na Binance — já foi fechada externamente')
+            except:
+                # Não conseguiu verificar — mantém no tracking por segurança
+                self.notify(
+                    f'❌ ERRO ao fechar {side} {pair.replace("USDT","")}\n'
+                    f'Erro: {err_str[:200]}\n'
+                    f'⚠️ Feche manualmente na Binance!'
+                )
+                return  # NÃO remove da memória
 
         # Usa preço REAL de execução para PnL
         pnl      = (actual_price - pos['entry']) * qty if side == 'BUY' else (pos['entry'] - actual_price) * qty
