@@ -99,7 +99,7 @@ log = logging.getLogger('CryptoEdge.HFT')
 
 # ── Config global (env) ───────────────────────────────────────────────────────
 HFT_TP_PCT       = float(os.environ.get('HFT_TP_PCT',      '1.50'))  # Referência para cálculo de viabilidade (NÃO é teto)
-HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.60'))  # 0.35% SL inicial fixo
+HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.35'))  # 0.35% SL inicial fixo
 # ── Trail Stop SEMPRE ATIVO — SEM TP FIXO, LUCRO ILIMITADO ───────────────────
 # ── Trail Stop com LUCRO FIXO GARANTIDO por nível ─────────────────────────────
 # NOVA LÓGICA: cada nível coloca o trail SL em posição FIXA (% do entry).
@@ -107,16 +107,16 @@ HFT_SL_PCT       = float(os.environ.get('HFT_SL_PCT',      '0.60'))  # 0.35% SL 
 # Preço avança → ativa próximo nível → trail SL sobe. Reverte → fecha no trail.
 HFT_TRAIL_ENABLED = True
 # L = trigger (% de move para ativar)
-HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.30'))
-HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.50'))
-HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '0.80'))
-HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '1.20'))
-HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '2.00'))
-HFT_TRAIL_L6 = float(os.environ.get('HFT_TRAIL_L6', '3.00'))
+HFT_TRAIL_L1 = float(os.environ.get('HFT_TRAIL_L1', '0.50'))
+HFT_TRAIL_L2 = float(os.environ.get('HFT_TRAIL_L2', '0.70'))
+HFT_TRAIL_L3 = float(os.environ.get('HFT_TRAIL_L3', '1.00'))
+HFT_TRAIL_L4 = float(os.environ.get('HFT_TRAIL_L4', '1.50'))
+HFT_TRAIL_L5 = float(os.environ.get('HFT_TRAIL_L5', '2.50'))
+HFT_TRAIL_L6 = float(os.environ.get('HFT_TRAIL_L6', '4.00'))
 HFT_TRAIL_BE_BUF = float(os.environ.get('HFT_TRAIL_BE_BUF', '0.02'))
 # K = lock offset (onde fica o trail SL). Auto-calculado no runtime.
 # Gaps crescem com o nível = mais lucro preservado em níveis altos
-_TRAIL_GAPS = [0, 0.15, 0.20, 0.30, 0.35, 0.50, 0.70]  # idx=nível
+_TRAIL_GAPS = [0, 0.08, 0.15, 0.20, 0.30, 0.40, 0.60]  # idx=nível
 # Log trail config na inicialização
 logging.getLogger('hft').info(
     f'  📊 Trail config: L1={HFT_TRAIL_L1}% L2={HFT_TRAIL_L2}% L3={HFT_TRAIL_L3}% '
@@ -1984,7 +1984,7 @@ class HFTEngine:
                     r = urllib.request.Request(f'{_APP_URL}/api/bot/trade/fix-entry', data=p,
                                                headers=_BOT_HEADER, method='POST')
                     urllib.request.urlopen(r, timeout=3)
-                except: pass
+                except (IOError, OSError): pass  # file I/O non-critical
                 entry = price
                 log.info(f'  ✅ {pair} entry corrigido: ${price:,.4f} TP:${new_tp:,.4f} SL:${new_sl:,.4f}')
 
@@ -2115,7 +2115,7 @@ class HFTEngine:
         pf = f'/tmp/hft_close_pair_{pair}'
         if os.path.exists(pf):
             try: os.remove(pf)
-            except: pass
+            except OSError: pass  # file already removed
             self.close_position_by_pair(pair, 'Manual close via painel')
             return
         for fpath in _glob.glob('/tmp/hft_close_*'):
@@ -2128,7 +2128,7 @@ class HFTEngine:
                     if db_id:
                         if not self.close_position_by_id(db_id, 'Manual'): self.close_position_by_pair(pair, 'Manual')
                     else: self.close_position_by_pair(pair, 'Manual')
-            except: pass
+            except Exception as _e: log.debug(f"Handled: {_e}")
 
     def close_position_by_pair(self, pair, reason='Manual close via painel'):
         for key, pos in list(self.positions.items()):
@@ -2451,7 +2451,7 @@ class HFTEngine:
                 for a in acc.get('balances',[]):
                     if a['asset']=='USDT':
                         real_balance = float(a['free']); break
-        except: pass
+        except Exception as _e: log.debug(f"Handled: {_e}")
 
         # Coleta regime e RSI dos pares ativos
         pair_lines = []
@@ -2513,6 +2513,11 @@ class HFTEngine:
         bal_diff = real_balance - self.capital
         bal_str  = f'${real_balance:.2f}'
         if abs(bal_diff) > 0.01: bal_str += f' ({bal_diff:+.2f} vs base)'
+        # Write heartbeat file for health monitoring
+        try:
+            with open('/data/hft_heartbeat.txt', 'w') as _hb:
+                _hb.write(f'{datetime.datetime.now().isoformat()}|{real_balance}|{len(self.positions)}|{self.daily_pnl}')
+        except (IOError, OSError): pass
         self.notify(
             f'💓 <b>HFT Heartbeat — Bot ativo</b>\n'
             f'─────────────────────────\n'
@@ -2657,7 +2662,7 @@ class HFTEngine:
         log.info(f'  🔄 HFT reset diário | {len(self.positions)} posições abertas')
         if self.daily_wins + self.daily_losses > 0:
             try: self.send_daily_summary()
-            except: pass
+            except Exception as _e: log.debug(f"Handled: {_e}")
 
         # ── Salva lucro do dia como loss limit de amanhã ──────────────────
         if self.daily_pnl > 0:
@@ -2718,7 +2723,7 @@ class HFTEngine:
                     f'❌ Piores: {bot_str}\n'
                     f'💡 Pesos ajustados para amanhã automaticamente'
                 )
-        except: pass
+        except Exception as _e: log.debug(f"Handled: {_e}")
         log.info('  ✅ HFT v3.1 novo dia iniciado')
 
 

@@ -7170,9 +7170,9 @@ function initHFTPanel() {
 // ─── Trail Stop Progressivo — UI ─────────────────────────────────────────────
 
 const TRAIL_PRESETS = {
-  conservador: { l1: 0.25, l2: 0.40, l3: 0.65, l4: 1.00, l5: 1.60, l6: 2.50 },
-  equilibrado: { l1: 0.30, l2: 0.50, l3: 0.80, l4: 1.20, l5: 2.00, l6: 3.00 },
-  agressivo:   { l1: 0.40, l2: 0.65, l3: 1.00, l4: 1.50, l5: 2.50, l6: 4.00 },
+  conservador: { l1: 0.40, l2: 0.55, l3: 0.80, l4: 1.20, l5: 2.00, l6: 3.00 },
+  equilibrado: { l1: 0.50, l2: 0.70, l3: 1.00, l4: 1.50, l5: 2.50, l6: 4.00 },
+  agressivo:   { l1: 0.60, l2: 0.85, l3: 1.20, l4: 1.80, l5: 3.00, l6: 5.00 },
   desligado:   { l1: 9.99, l2: 15.0, l3: 20.0, l4: 30.0, l5: 50.0, l6: 80.0 },
 };
 

@@ -783,7 +783,7 @@ def on_kline(msg):
         log.warning(f"  ⛔ Stop global ${close:,.2f}!")
         notify_stop_loss_global(SYMBOL, close)
         try: client.cancel_open_orders(symbol=SYMBOL)
-        except: pass
+        except Exception: pass  # notification failure non-critical
         close_position(close,'STOP GLOBAL')
         state['running']=False; return
 
@@ -1045,14 +1045,14 @@ def main():
             start_f = '/tmp/hft_start_flag'
             if _tos.path.exists(stop_f):
                 try: _tos.remove(stop_f)
-                except: pass
+                except OSError: pass  # file already removed
                 eng = get_hft_engine()
                 if eng and eng.running:
                     eng.running = False
                     log.info('  Bot parado via /stop Telegram')
             if _tos.path.exists(start_f):
                 try: _tos.remove(start_f)
-                except: pass
+                except OSError: pass  # file already removed
                 eng = get_hft_engine()
                 if eng and not eng.running:
                     # Reset daily stats para permitir que o bot rode
@@ -1173,7 +1173,7 @@ def main():
                 import os as _osc
                 if _osc.path.exists('/tmp/hft_stop_flag'):
                     try: _osc.remove('/tmp/hft_stop_flag')
-                    except: pass
+                    except OSError: pass  # file already removed
                     eng = get_hft_engine()
                     if eng and eng.running:
                         eng.running = False
@@ -1182,7 +1182,7 @@ def main():
                 # Check for Telegram /start command
                 if _osc.path.exists('/tmp/hft_start_flag'):
                     try: _osc.remove('/tmp/hft_start_flag')
-                    except: pass
+                    except OSError: pass  # file already removed
                     eng = get_hft_engine()
                     if eng and not eng.running:
                         eng.daily_pnl = 0.0; eng.daily_wins = 0; eng.daily_losses = 0
@@ -1198,7 +1198,7 @@ def main():
                     break
 
             try: twm.stop()
-            except: pass
+            except Exception as _e: log.debug(f"Handled: {_e}")
 
             if not state['running']:
                 break  # usuário parou
@@ -1236,7 +1236,7 @@ def main():
     if pid_file:
         try:
             if os.path.exists(pid_file): os.remove(pid_file)
-        except: pass
+        except OSError: pass  # file already removed
 
 if __name__=='__main__':
     MAX_RETRIES = 10   # máximo de tentativas de reconexão

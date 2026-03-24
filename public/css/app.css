@@ -537,3 +537,183 @@ td.green{color:var(--green)}td.red{color:var(--red)}td.gold{color:var(--gold)}td
 /* Admin panel: no top gap */
 #panel-admin { padding-top: 0; }
 #panel-admin > div:first-child { margin-top: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — CryptoEdge Pro
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Mobile navigation */
+@media (max-width: 600px) {
+  .main { padding: 8px !important; padding-top: 12px !important; }
+
+  /* Bottom nav instead of sidebar */
+  .sidebar {
+    display: flex !important;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    top: auto;
+    width: 100% !important;
+    height: 56px;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    z-index: 1000;
+    border-top: 1px solid var(--border);
+    border-right: none;
+    background: var(--bg1);
+    padding: 0 4px;
+    overflow-x: auto;
+  }
+  .sidebar .logo, .sidebar .logo-text, .sidebar .logo-sub,
+  .sidebar .nav-section, .sidebar .nav-badge { display: none !important; }
+  .sidebar .nav-item {
+    flex-direction: column;
+    padding: 6px 8px;
+    min-width: 48px;
+    font-size: 10px;
+    gap: 2px;
+  }
+  .sidebar .nav-item span {
+    display: block !important;
+    font-size: 9px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 56px;
+  }
+  .sidebar .nav-item svg, .sidebar .nav-item img {
+    width: 18px; height: 18px;
+  }
+
+  /* Main content padding for bottom nav */
+  .main { padding-bottom: 70px !important; }
+
+  /* Dashboard cards */
+  .summary-cards, .g2, .g3, .g4 {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
+  }
+  .summary-cards > div, .metric-card {
+    padding: 8px 10px !important;
+    min-height: auto !important;
+  }
+  .summary-cards .metric-value, .metric-card h2 {
+    font-size: 1.1rem !important;
+  }
+  .summary-cards .metric-label, .metric-card small {
+    font-size: 0.65rem !important;
+  }
+
+  /* HFT Config: stack everything vertically */
+  .hft-config-grid, .hft-row, [style*="grid-template-columns: 1fr 1fr 1fr"] {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+  .hft-config-grid label, .hft-row label {
+    font-size: 0.7rem !important;
+  }
+  .hft-config-grid input, .hft-config-grid select,
+  .hft-row input, .hft-row select {
+    font-size: 0.85rem !important;
+    padding: 6px 8px !important;
+  }
+
+  /* Trail sliders */
+  .trail-slider-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Operations table — horizontal scroll */
+  .ops-table-wrapper, [style*="overflow-x"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  table { font-size: 0.75rem !important; }
+  table th, table td { padding: 4px 6px !important; white-space: nowrap; }
+
+  /* Buttons */
+  button, .btn {
+    padding: 6px 10px !important;
+    font-size: 0.75rem !important;
+  }
+
+  /* Preset buttons row */
+  [style*="display:flex"][style*="gap"] {
+    flex-wrap: wrap;
+  }
+
+  /* Chart containers */
+  .chart-container, canvas {
+    max-height: 200px !important;
+  }
+
+  /* Pairs grid */
+  .pairs-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 4px !important;
+  }
+
+  /* Modal / confirm dialogs */
+  .modal-content, .confirm-dialog {
+    width: 95% !important;
+    max-width: 95vw !important;
+    margin: 10px auto !important;
+    padding: 12px !important;
+  }
+
+  /* Hide non-essential on mobile */
+  .hide-mobile { display: none !important; }
+
+  /* Section headers */
+  h2, h3, .section-title {
+    font-size: 0.9rem !important;
+  }
+
+  /* Scrollable tabs */
+  .tab-row, .filter-row {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+  }
+}
+
+/* Tablet tweaks */
+@media (min-width: 601px) and (max-width: 900px) {
+  .main { padding: 12px !important; }
+
+  .summary-cards, .g4 {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .hft-config-grid, [style*="grid-template-columns: 1fr 1fr 1fr"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  table { font-size: 0.8rem !important; }
+}
+
+/* Touch-friendly targets */
+@media (pointer: coarse) {
+  button, .btn, .nav-item, input, select {
+    min-height: 40px;
+  }
+  input[type="range"] {
+    height: 28px;
+  }
+}
+
+/* Safe area for notched phones */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  @media (max-width: 600px) {
+    .sidebar {
+      padding-bottom: env(safe-area-inset-bottom);
+      height: calc(56px + env(safe-area-inset-bottom));
+    }
+    .main {
+      padding-bottom: calc(70px + env(safe-area-inset-bottom)) !important;
+    }
+  }
+}

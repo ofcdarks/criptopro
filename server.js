@@ -3123,10 +3123,47 @@ app.get('/api/hft/pnl-summary', requireAuth, (req, res) => {
 
 // ─── Performance & HFT stats ─────────────────────────────────────────────────
 
-app.get('/api/health', (req, res) => res.json({
-  status:'ok', model: process.env.AI_MODEL||'qwen3-30b-a3b', env: process.env.NODE_ENV||'development',
-  ts: new Date().toISOString(), uptime: Math.round(process.uptime())+'s',
-}));
+app.get('/api/health', (req, res) => {
+  let botStatus = 'unknown';
+  let botPid = null;
+  try {
+    const pid = _botPid();
+    botPid = pid;
+    botStatus = pid ? 'running' : 'stopped';
+  } catch {}
+
+  // Check last heartbeat from bot
+  let lastHeartbeat = null;
+  try {
+    const stat = require('fs').statSync('/data/hft_heartbeat.txt');
+    lastHeartbeat = stat.mtime.toISOString();
+    const ageMs = Date.now() - stat.mtime.getTime();
+    if (ageMs > 600000) botStatus = 'stale'; // >10min no heartbeat
+  } catch {}
+
+  res.json({
+    status: 'ok',
+    version: '2.2',
+    ts: new Date().toISOString(),
+    uptime_sec: Math.round(process.uptime()),
+    uptime_human: (() => {
+      const s = Math.round(process.uptime());
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return `${d}d ${h}h ${m}m`;
+    })(),
+    bot: {
+      status: botStatus,
+      pid: botPid,
+      last_heartbeat: lastHeartbeat,
+    },
+    memory: {
+      rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      heap_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+    },
+  });
+});
 
 // ─── Legal Pages ──────────────────────────────────────────────────────────────
 app.get('/privacy',  (req, res) => res.sendFile(path.join(__dirname,'public','privacy.html')));
