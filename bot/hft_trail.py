@@ -119,19 +119,33 @@ def should_close(side: str, price: float, active_sl: float, tp: float,
     """
     Determine if position should be closed.
     Returns reason string if should close, None if should stay open.
+    Implements progressive loss cutting:
+    - 45min in loss + < -0.25% → cut
+    - 90min in loss + < -0.15% → cut  
+    - 120min in loss → cut any loss
     """
     if side == 'BUY':
         if not no_tp_ceiling and price >= tp:
-            return f'TP +{(price / active_sl * 100 - 100):.2f}%'
+            return f'TP'
         if price <= active_sl:
             return 'trail_hit'
-        if age_sec > time_exit * 3 and pnl_pct <= 0:
-            return f'Time-exit max (loss) {pnl_pct:+.3f}%'
     else:
         if not no_tp_ceiling and price <= tp:
-            return f'TP +{(100 - price / active_sl * 100):.2f}%'
+            return f'TP'
         if price >= active_sl:
             return 'trail_hit'
-        if age_sec > time_exit * 3 and pnl_pct <= 0:
-            return f'Time-exit max (loss) {pnl_pct:+.3f}%'
+
+    # Progressive loss cutting
+    if pnl_pct <= 0:
+        if age_sec > 2700 and pnl_pct < -0.25:
+            return f'Loss-cut 45m ({pnl_pct:+.2f}%)'
+        if age_sec > 5400 and pnl_pct < -0.15:
+            return f'Loss-cut 90m ({pnl_pct:+.2f}%)'
+        if age_sec > 7200:
+            return f'Time-exit 2h ({pnl_pct:+.2f}%)'
+
+    # Profit but no trail after 4h
+    if pnl_pct > 0 and age_sec > time_exit * 2:
+        return f'Time-exit profit ({pnl_pct:+.2f}%)'
+
     return None

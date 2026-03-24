@@ -140,7 +140,7 @@ HFT_DAILY_PROTECT_THRESHOLD = float(os.environ.get('HFT_DAILY_PROTECT_THRESHOLD'
 HFT_DAILY_PROTECT_PCT       = float(os.environ.get('HFT_DAILY_PROTECT_PCT',       '60'))    # % do pico a proteger
 HFT_DAILY_PROTECT_ENABLED   = os.environ.get('HFT_DAILY_PROTECT_ENABLED', 'true').lower() == 'true'
 HFT_COOLDOWN     = int(os.environ.get('HFT_COOLDOWN',      '180'))
-HFT_TIME_EXIT    = int(os.environ.get('HFT_TIME_EXIT',     '7200'))  # 30min — tempo para TP 1.5% em 3m
+HFT_TIME_EXIT    = int(os.environ.get('HFT_TIME_EXIT',     '7200'))  # 2h — base para time exits
 HFT_MIN_SIGNALS  = int(os.environ.get('HFT_MIN_SIGNALS',   '3'))
 HFT_PAIRS        = [p.strip() for p in os.environ.get('HFT_PAIRS',
     'BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,MATICUSDT,DOTUSDT'
@@ -1947,7 +1947,7 @@ class HFTEngine:
 
     def _cleanup_orphan_positions(self, current_price):
         """Fecha posições abertas há mais de 2h — evita posições órfãs."""
-        max_age = HFT_TIME_EXIT * 4  # 4x time_exit = ~2h
+        max_age = 9000  # 2.5h máximo — nunca deixa posição pendurada
         now = time.time()
         for key, pos in list(self.positions.items()):
             age = now - pos['opened_at']
@@ -2092,23 +2092,45 @@ class HFTEngine:
             pnl_net      = pnl_gross - total_cost
 
             # ── Decisões de saída ─────────────────────────────────────
+            # REGRA 1: Trail/SL hit → fecha imediato
+            # REGRA 2: Loss progressivo — quanto mais tempo em loss, mais rápido corta
+            # REGRA 3: Posição em lucro tem mais paciência
+
             if side == 'BUY':
                 if not HFT_NO_TP_CEILING and price >= tp:
                     self._close_position(key, price, f'TP +{(price/entry-1)*100:.2f}%')
                 elif price <= active_sl:
-                    # Trail disse pra fechar → FECHA. Sem discussão.
                     locked = (active_sl - entry) / entry * 100
                     self._close_position(key, price, f'{sl_lbl} {locked:+.3f}% net:${pnl_net:+.4f}')
-                elif age > HFT_TIME_EXIT * 3 and pnl_pct <= 0:
-                    self._close_position(key, price, f'Time-exit max (loss) {pnl_pct:+.3f}%')
+                elif pnl_pct <= 0:
+                    # ── LOSS PROGRESSIVO: corta mais cedo se piora ──
+                    # 45min em loss → corta se < -0.25%
+                    # 90min em loss → corta se < -0.15%
+                    # 120min em loss → corta qualquer loss
+                    if age > 2700 and pnl_pct < -0.25:
+                        self._close_position(key, price, f'Loss-cut 45m ({pnl_pct:+.2f}%)')
+                    elif age > 5400 and pnl_pct < -0.15:
+                        self._close_position(key, price, f'Loss-cut 90m ({pnl_pct:+.2f}%)')
+                    elif age > 7200:
+                        self._close_position(key, price, f'Time-exit 2h ({pnl_pct:+.2f}%)')
+                elif pnl_pct > 0 and age > HFT_TIME_EXIT * 2:
+                    # Em lucro mas não ativou trail após 4h → fecha com lucro
+                    self._close_position(key, price, f'Time-exit profit ({pnl_pct:+.2f}%)')
             else:
                 if not HFT_NO_TP_CEILING and price <= tp:
                     self._close_position(key, price, f'TP +{(entry/price-1)*100:.2f}%')
                 elif price >= active_sl:
                     locked = (entry - active_sl) / entry * 100
                     self._close_position(key, price, f'{sl_lbl} {locked:+.3f}% net:${pnl_net:+.4f}')
-                elif age > HFT_TIME_EXIT * 3 and pnl_pct <= 0:
-                    self._close_position(key, price, f'Time-exit max (loss) {pnl_pct:+.3f}%')
+                elif pnl_pct <= 0:
+                    if age > 2700 and pnl_pct < -0.25:
+                        self._close_position(key, price, f'Loss-cut 45m ({pnl_pct:+.2f}%)')
+                    elif age > 5400 and pnl_pct < -0.15:
+                        self._close_position(key, price, f'Loss-cut 90m ({pnl_pct:+.2f}%)')
+                    elif age > 7200:
+                        self._close_position(key, price, f'Time-exit 2h ({pnl_pct:+.2f}%)')
+                elif pnl_pct > 0 and age > HFT_TIME_EXIT * 2:
+                    self._close_position(key, price, f'Time-exit profit ({pnl_pct:+.2f}%)')
 
     def _poll_close_flags(self, pair, close):
         import glob as _glob

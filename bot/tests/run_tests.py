@@ -256,9 +256,30 @@ class TestShouldClose(unittest.TestCase):
     def test_stay_open(self):
         self.assertIsNone(should_close('BUY', 101.0, 99.0, 110.0, True, 1.0, 100, 7200))
 
-    def test_time_exit_loss(self):
-        result = should_close('BUY', 99.5, 99.0, 110.0, True, -0.5, 25000, 7200)
-        self.assertIn('Time-exit', result)
+    def test_loss_cut_45min(self):
+        result = should_close('BUY', 99.5, 99.0, 110.0, True, -0.30, 3000, 7200)
+        self.assertIn('Loss-cut 45m', result)
+
+    def test_loss_cut_90min(self):
+        result = should_close('BUY', 99.8, 99.0, 110.0, True, -0.20, 5500, 7200)
+        self.assertIn('Loss-cut 90m', result)
+
+    def test_time_exit_2h(self):
+        result = should_close('BUY', 99.9, 99.0, 110.0, True, -0.05, 7500, 7200)
+        self.assertIn('Time-exit 2h', result)
+
+    def test_small_loss_stays_open_early(self):
+        # -0.10% at 20min → should stay open (not yet 45min)
+        self.assertIsNone(should_close('BUY', 99.9, 99.0, 110.0, True, -0.10, 1200, 7200))
+
+    def test_profit_no_time_exit_early(self):
+        # In profit at 1h → stays open
+        self.assertIsNone(should_close('BUY', 101.0, 99.0, 110.0, True, 1.0, 3600, 7200))
+
+    def test_profit_time_exit_4h(self):
+        # In profit but no trail after 4h → close
+        result = should_close('BUY', 100.5, 99.0, 110.0, True, 0.5, 15000, 7200)
+        self.assertIn('Time-exit profit', result)
 
 
 # ═══════════════════════════════════════════════════════════════
