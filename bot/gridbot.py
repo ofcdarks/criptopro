@@ -103,7 +103,7 @@ log = logging.getLogger('CryptoEdge')
 # -- Config ---------------------------------------------------------------------
 API_KEY    = os.environ.get('BINANCE_API_KEY',   '')
 SECRET_KEY = os.environ.get('BINANCE_SECRET_KEY','')
-TESTNET    = os.environ.get('BOT_TESTNET','true').lower() == 'true'
+TESTNET    = os.environ.get('BOT_TESTNET','true').lower() in ('true', 'paper')
 
 SYMBOL     = os.environ.get('BOT_SYMBOL', os.environ.get('SYMBOL', 'BTCUSDT')).upper().replace('/','').replace('-','')
 CAPITAL    = float(os.environ.get('BOT_CAPITAL',    '300'))

@@ -147,7 +147,7 @@ HFT_PAIRS        = [p.strip() for p in os.environ.get('HFT_PAIRS',
 ).split(',') if p.strip()]
 HFT_TIMEFRAME    = os.environ.get('HFT_TIMEFRAME', '15m')
 HFT_MIN_VOLUME   = float(os.environ.get('HFT_MIN_VOL_USDT', '5000000'))
-HFT_TESTNET      = os.environ.get('BOT_TESTNET', 'true').lower() == 'true'
+HFT_TESTNET      = os.environ.get('BOT_TESTNET', 'true').lower() in ('true', 'paper')
 HFT_MIN_RR       = float(os.environ.get('HFT_MIN_RR',      '1.4')) # era 1.5
 HFT_SESSION_FILTER = os.environ.get('HFT_SESSION_FILTER', 'false').lower() == 'true'
 HFT_TZ_OFFSET    = int(os.environ.get('HFT_TZ_OFFSET',    '-3'))   # UTC-3 BRT
@@ -382,6 +382,14 @@ class HFTEngine:
         self._last_pos_sync = 0  # timestamp última sincronização de posições com Binance
 
         log.info('  🚀 HFT Engine v3.1 ADAPTIVE + CONFIRMATION + CALIBRATION + AI iniciado')
+        _mode = os.environ.get('BOT_TESTNET', 'true').lower()
+        if _mode == 'paper':
+            log.warning('  📋 MODO: PAPER TRADING — nenhuma ordem real será executada')
+        elif _mode == 'true':
+            log.warning('  🧪 MODO: TESTNET — nenhuma ordem real será executada')
+        else:
+            log.warning('  🔴 MODO: REAL — operando com dinheiro real!')
+        log.info(f'  HFT_TESTNET={HFT_TESTNET} BOT_TESTNET={_mode}')
         if HFT_COMPOUND:
             log.info(f'  💰 Juros compostos: ATIVO | capital atual = ${self.capital:.2f}')
 
@@ -1350,6 +1358,13 @@ class HFTEngine:
 
         from binance.enums import SIDE_BUY, SIDE_SELL, ORDER_TYPE_MARKET
         b_side = SIDE_BUY if side == 'BUY' else SIDE_SELL
+
+        # ═══ SAFETY CHECK: double-verify we're not in paper/testnet ═══
+        _bot_mode = os.environ.get('BOT_TESTNET', 'true').lower()
+        _is_paper = _bot_mode in ('true', 'paper')
+        if _is_paper != HFT_TESTNET:
+            log.error(f'  🚨 SAFETY: BOT_TESTNET={_bot_mode} but HFT_TESTNET={HFT_TESTNET} — BLOCKING ORDER')
+            return False
 
         try:
             if HFT_TESTNET:
